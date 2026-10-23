@@ -56,7 +56,9 @@ fn the_scan_reads_names_like_a_whole_file_read() {
                 let p = e.path();
                 if p.is_dir() {
                     stack.push(p);
-                } else if p.extension().is_some_and(|x| ["ttf", "otf", "ttc", "otc"].contains(&x.to_ascii_lowercase().to_str().unwrap_or(""))) {
+                } else if p.is_file()
+                    && p.extension().is_some_and(|x| ["ttf", "otf", "ttc", "otc"].contains(&x.to_ascii_lowercase().to_str().unwrap_or("")))
+                {
                     files.push(p);
                 }
             }
@@ -65,6 +67,128 @@ fn the_scan_reads_names_like_a_whole_file_read() {
     for p in files {
         let Ok(whole) = std::fs::read(&p) else { continue };
         assert_eq!(faces_in(&index_bytes(&p, whole.len()).unwrap()), faces_in(&whole), "{}", p.display());
+    }
+}
+
+#[test]
+fn macos_font_assets_are_found_in_the_asset_store() {
+    // A store laid out like macOS's: fonts downloaded on demand sit in `<id>.asset/AssetData`
+    // folders under `com_apple_MobileAsset_Font*`; other assets are never walked. Untested on a Mac.
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let tmp = TempDir(std::env::temp_dir().join(format!("figcraft-font-assets-{}", std::process::id())));
+    let store = tmp.0.join("AssetsV2");
+    let fonts = store.join("com_apple_MobileAsset_Font7");
+    let data = |kind: &std::path::Path| kind.join("0f1e2d.asset").join("AssetData");
+    for dir in [data(&fonts), data(&store.join("com_apple_MobileAsset_VoiceServices"))] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    // A file under a font-like name is listed but walks to nothing.
+    std::fs::write(store.join("com_apple_MobileAsset_Font7.plist"), b"not a folder").unwrap();
+    let found = font_asset_dirs(&store);
+    assert!(found.contains(&fonts) && !found.iter().any(|d| d.ends_with("com_apple_MobileAsset_VoiceServices")), "{found:?}");
+    assert!(font_asset_dirs(&tmp.0.join("missing")).is_empty());
+    // With an installed font to copy in (none on CI), the scan finds it only in the font folder.
+    let installed = system_font_dirs()
+        .into_iter()
+        .find_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|x| x == "ttf")));
+    let Some(font) = installed else { return };
+    for kind in ["com_apple_MobileAsset_Font7", "com_apple_MobileAsset_VoiceServices"] {
+        std::fs::copy(&font, data(&store.join(kind)).join("Font.ttf")).unwrap();
+    }
+    let mut pending = BTreeMap::new();
+    for dir in found {
+        scan_dir(&dir, 0, &mut pending);
+    }
+    let paths: Vec<_> = pending.values().flat_map(|(_, p)| p.iter().map(|p| p.path.clone())).collect();
+    assert!(!paths.is_empty() && paths.iter().all(|p| p.starts_with(&fonts)), "{paths:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_scan_skips_named_pipes() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const INPUT: &str = "FIGCRAFT_TEST_PIPE_FONT_DIR";
+    if let Some(dir) = std::env::var_os(INPUT) {
+        let mut pending = BTreeMap::new();
+        scan_dir(std::path::Path::new(&dir), 0, &mut pending);
+        assert!(pending.is_empty());
+        std::fs::write(std::path::Path::new(&dir).join("complete"), b"scanned").unwrap();
+        return;
+    }
+
+    struct TempDir(std::path::PathBuf);
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let path = std::env::temp_dir().join(format!("figcraft-font-pipe-{}", std::process::id()));
+    std::fs::create_dir(&path).unwrap();
+    let dir = TempDir(path);
+    // POSIX mkfifo is only a test fixture helper, never a runtime font dependency.
+    let status = match Command::new("mkfifo").arg(dir.0.join("pipe.ttf")).status() {
+        Ok(status) => status,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipping named-pipe fixture: POSIX mkfifo is unavailable");
+            return;
+        }
+        Err(error) => panic!("cannot create named-pipe fixture: {error}"),
+    };
+    assert!(status.success(), "mkfifo failed");
+    std::os::unix::fs::symlink("pipe.ttf", dir.0.join("linked.otf")).unwrap();
+    std::os::unix::fs::symlink("missing.ttf", dir.0.join("broken.ttf")).unwrap();
+
+    // A regression must fail without leaving a blocked test thread behind. Run only this
+    // test in a child, then kill and reap it if opening the pipe blocks the scanner.
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let module = module_path!().split_once("::").unwrap().1;
+    let mut child = Child(
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &format!("{module}::the_scan_skips_named_pipes"), "--nocapture"])
+            .env(INPUT, &dir.0)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            assert!(status.success(), "font-scan child failed: {status}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "font scan blocked on a named pipe");
+        // std::process has no portable timed wait; a bounded poll keeps the regression finite.
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // An exact-filter typo otherwise makes libtest report success after running zero tests.
+    assert_eq!(std::fs::read(dir.0.join("complete")).unwrap(), b"scanned");
+}
+
+#[test]
+fn fallback_faces_follow_the_runs_style() {
+    // A bold run's missing characters come from each fallback family's face nearest Bold, not its
+    // Regular, so Hangul or kana in a bold Latin run come out bold too. Same families, same order.
+    scan_system_fonts();
+    let mut w = db().write().unwrap();
+    let regular = w.fallbacks();
+    let bold = w.fallbacks_for("Bold");
+    let families = |v: &[Arc<Face>]| v.iter().map(|f| f.family.clone()).collect::<Vec<_>>();
+    assert_eq!(families(&regular), families(&bold));
+    for (r, b) in regular.iter().zip(&bold) {
+        assert!(b.weight >= r.weight, "{}: {} is lighter than {}", b.family, b.style, r.style);
     }
 }
 
@@ -92,4 +216,50 @@ fn user_font_dirs_preserve_non_utf8_paths() {
     let dirs = unix_user_font_dirs(Some(OsString::from_vec(b"/home/\xff".to_vec())), Some(OsString::from_vec(b"/data/\xfe".to_vec())));
     assert_eq!(dirs[0].as_os_str().as_bytes(), b"/home/\xff/.fonts");
     assert_eq!(dirs[1].as_os_str().as_bytes(), b"/data/\xfe/fonts");
+}
+
+/// A rescan offers new families and the styles installed since, and never a file twice.
+#[test]
+fn a_rescan_offers_fonts_installed_since() {
+    let entry = |s: &str| Pending { path: format!("no-such-dir/{s}.ttf").into(), index: 0, style: s.into() };
+    let mut db = pending(&["Regular"]);
+    let found = |fams: &[(&str, &[&str])]| -> BTreeMap<String, (String, Vec<Pending>)> {
+        fams.iter().map(|(f, styles)| (f.to_lowercase(), ((*f).to_string(), styles.iter().map(|s| entry(s)).collect()))).collect()
+    };
+    // A new family is added; a pending one takes the walk's files (a new style); both changed.
+    let r = db.merge_rescan(found(&[("CJK UI", &["Regular", "Bold"]), ("Brand Sans", &["Regular"])]));
+    assert_eq!(r.added, ["Brand Sans"]);
+    assert_eq!(r.changed, ["Brand Sans", "CJK UI"]);
+    assert!(db.has_family("brand sans"));
+    assert_eq!(left(&db), ["Regular", "Bold"]);
+    // A loaded family keeps its faces and gets only the files it hasn't read, once.
+    db.families.insert("brand sans".into(), ("Brand Sans".into(), Vec::new()));
+    db.pending.remove("brand sans");
+    db.loaded_files.insert(("no-such-dir/Regular.ttf".into(), 0));
+    let same = db.merge_rescan(found(&[("Brand Sans", &["Regular"])]));
+    assert_eq!(same, Rescan::default());
+    assert!(!db.pending.contains_key("brand sans"));
+    let bold = db.merge_rescan(found(&[("Brand Sans", &["Regular", "Black"])]));
+    assert_eq!((bold.added.len(), bold.changed), (0, vec!["Brand Sans".to_string()]));
+    let waiting = |db: &FontDb| db.pending.get("brand sans").map(|(_, v)| v.iter().map(|e| e.style.clone()).collect::<Vec<_>>()).unwrap_or_default();
+    assert_eq!(waiting(&db), ["Black"]);
+    assert_eq!(db.merge_rescan(found(&[("Brand Sans", &["Regular", "Black"])])), Rescan::default());
+    assert_eq!(waiting(&db), ["Black"]);
+}
+
+/// Font file bytes add their faces once; junk adds nothing.
+#[test]
+fn font_bytes_load_into_the_db() {
+    assert!(load_font_bytes(b"not a font".to_vec()).is_empty());
+    assert!(load_font_bytes(Vec::new()).is_empty());
+    // With the embedded fonts (absent on CI builds without craft-fonts): a file's family is added,
+    // and loading the same file again returns it without adding its faces twice.
+    if let Some(f) = CRAFT_FONTS.first() {
+        let families = load_font_bytes(f.bytes.to_vec());
+        assert_eq!(families.len(), 1);
+        assert!(families.iter().all(|f| has_family(f)));
+        let faces = db().read().unwrap().face_count();
+        assert_eq!(load_font_bytes(f.bytes.to_vec()), families);
+        assert_eq!(db().read().unwrap().face_count(), faces);
+    }
 }
