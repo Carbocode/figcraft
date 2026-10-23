@@ -1,7 +1,9 @@
 //! Boards: the file kind, sticky notes, shapes with text, connectors that follow what they join
 //! (locally, through undo and in live sessions), stamps, ink and the eraser, and refusals.
 
-use figcraft_doc::*;
+use figcraft_doc::{
+    BOARD_PAGE, BoardItem, BoardShape, Connector, End, FileKind, Node, NodeId, NodeKind, Routing, Side, Stamp, StrokeCap, board_color,
+};
 use figcraft_geom::Point;
 use serde_json::{Value, json};
 
@@ -10,21 +12,21 @@ use crate::collab_live_tests::Room;
 use crate::tools::{PointerEvent, PointerKind, ToolId};
 use crate::{EngineError, Session};
 
-fn board() -> Session {
+pub(crate) fn board() -> Session {
     let mut s = Session::new();
     s.execute("file.newBoard", &json!({"name": "Ideas"})).unwrap();
     s
 }
 
-fn id(v: &Value, key: &str) -> NodeId {
+pub(crate) fn id(v: &Value, key: &str) -> NodeId {
     v[key].as_u64().map(NodeId).unwrap_or_else(|| panic!("no {key} in {v}"))
 }
 
-fn node(s: &Session, id: NodeId) -> Node {
+pub(crate) fn node(s: &Session, id: NodeId) -> Node {
     s.doc().unwrap().node(id).unwrap().clone()
 }
 
-fn connector(s: &Session, id: NodeId) -> Connector {
+pub(crate) fn connector(s: &Session, id: NodeId) -> Connector {
     match node(s, id).board {
         Some(BoardItem::Connector(c)) => c,
         other => panic!("not a connector: {other:?}"),
@@ -32,14 +34,14 @@ fn connector(s: &Session, id: NodeId) -> Connector {
 }
 
 /// Connector `id`'s points on the page.
-fn drawn(s: &Session, id: NodeId) -> Vec<Point> {
+pub(crate) fn drawn(s: &Session, id: NodeId) -> Vec<Point> {
     let doc = s.doc().unwrap();
     let NodeKind::Vector { network } = &doc.node(id).unwrap().kind else { panic!("not a vector") };
     let w = doc.world_transform(id);
     network.vertices.iter().map(|v| w * v.point()).collect()
 }
 
-fn near(a: Point, b: Point) -> bool {
+pub(crate) fn near(a: Point, b: Point) -> bool {
     (a - b).hypot() < 1e-6
 }
 

@@ -71,6 +71,8 @@ pub mod widgets;
 pub mod windows;
 
 #[cfg(test)]
+mod board_ui_tests;
+#[cfg(test)]
 mod theme_startup_tests;
 
 #[cfg(test)]
@@ -472,15 +474,16 @@ pub const PANEL_DEFAULT: f32 = 240.0;
 pub const CANVAS_MIN: f32 = 160.0;
 
 /// The widths the side panels are drawn at in `avail` points (the window less the icon rail), from
-/// the widths asked for (`left`: none while it is closed): each within its limits, and narrower
-/// in a small window so the canvas keeps [`CANVAS_MIN`] (the right panel gives way last).
-pub fn fit_panels(avail: f32, left: Option<f32>, right: f32) -> (f32, f32) {
+/// the widths asked for (none while a panel is closed, which takes no room): each within its
+/// limits, and narrower in a small window so the canvas keeps [`CANVAS_MIN`] (the right panel
+/// gives way last).
+pub fn fit_panels(avail: f32, left: Option<f32>, right: Option<f32>) -> (f32, f32) {
     let fit = |w: f32, range: &std::ops::RangeInclusive<f32>, room: f32| {
         let w = if w.is_finite() { w } else { PANEL_DEFAULT };
         w.clamp(*range.start(), room.clamp(*range.start(), *range.end()))
     };
     let left_min = left.map_or(0.0, |_| *LEFT_PANEL.start());
-    let right = fit(right, &RIGHT_PANEL, avail - left_min - CANVAS_MIN);
+    let right = right.map_or(0.0, |r| fit(r, &RIGHT_PANEL, avail - left_min - CANVAS_MIN));
     (left.map_or(0.0, |l| fit(l, &LEFT_PANEL, avail - right - CANVAS_MIN)), right)
 }
 
@@ -1580,6 +1583,16 @@ impl FigApp {
         }
     }
 
+    /// Whether the right panel shows: never with the UI `hidden`; always on a design file; on a
+    /// board, which has no prototypes or Dev Mode (its tab stays Design), only when asked for.
+    fn right_panel_shown(&mut self, hidden: bool) -> bool {
+        let board = self.session.doc().is_ok_and(figcraft_engine::board::is_board);
+        if board {
+            self.ui.right_tab = RightTab::Design;
+        }
+        !hidden && (!board || self.ui.board_panel)
+    }
+
     /// One frame of the window drawing now.
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
@@ -1631,12 +1644,7 @@ impl FigApp {
             return;
         }
         let hidden = self.session.ds().map(|d| d.view.ui_hidden).unwrap_or(false);
-        // Boards have no prototypes or Dev Mode, and show the Design panel only when asked.
-        let board = self.session.doc().is_ok_and(figcraft_engine::board::is_board);
-        if board {
-            self.ui.right_tab = RightTab::Design;
-        }
-        let right_open = !hidden && (!board || self.ui.board_panel);
+        let right_open = self.right_panel_shown(hidden);
         if !hidden {
             egui::Panel::left("left_rail")
                 .exact_size(56.0)
@@ -1649,8 +1657,7 @@ impl FigApp {
         }
         // The panels are as wide as asked, less in a window too small for them and the canvas.
         let left_open = !hidden && !self.ui.left_collapsed;
-        let (left_w, right_w) = fit_panels(ui.available_width(), left_open.then_some(self.ui.left_width), self.ui.right_width);
-        let right_w = if right_open { right_w } else { 0.0 };
+        let (left_w, right_w) = fit_panels(ui.available_width(), left_open.then_some(self.ui.left_width), right_open.then_some(self.ui.right_width));
         let rows = ui.available_rect_before_wrap().y_range();
         let mut edges: Vec<(&str, f32, f32, f32)> = Vec::new();
         if left_open {

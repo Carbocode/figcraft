@@ -4,15 +4,19 @@
 //! connectors' routes and their labels) up to date in the normalize pass, so local edits, undo and
 //! live-session edits from others all end in the same geometry.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use figcraft_color::{BlendMode, Color, Paint};
-use figcraft_doc::*;
+use figcraft_doc::{
+    AutoLayout, BOARD_COLORS, BoardItem, BoardShape, Connector, Constraints, CrossAlign, DocError, Document, Effect, EffectKind, End, FileKind,
+    HConstraint, LayoutMode, MainAlign, Node, NodeId, NodeKind, Routing, STAMP_SIZE, Shadow, Side, Sizing, Stamp, StrokeAlign, StrokeCap, StrokeJoin,
+    TextAlignH, TextAutoResize, TextData, VConstraint, VectorNetwork, board_color,
+};
 use figcraft_geom::{Affine, Point, Rect};
 use serde_json::{Value, json};
 
 use crate::cmd::CommandSpec;
-use crate::params::*;
+use crate::params::{boolean, color_of, get, id, id_of, num, num_or, opt_id, req_num, req_string, req_targets, string};
 use crate::tools::{Gesture, PointerEvent, ToolId};
 use crate::{EngineError, Result, Session, bad, spec, textedit};
 
@@ -703,66 +707,104 @@ fn set_color(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"ids": changed}))
 }
 
+/// What `board.setStyle` changes (each `None` leaves it).
+struct Restyle {
+    shape: Option<BoardShape>,
+    routing: Option<Routing>,
+    size: Option<f64>,
+    start: Option<StrokeCap>,
+    end: Option<StrokeCap>,
+}
+
+impl Restyle {
+    fn of(cmd: &str, p: &Value) -> Result<Restyle> {
+        let size = num(p, "fontSize")
+            .map(|v| if v.is_finite() && (1.0..=1000.0).contains(&v) { Ok(v) } else { Err(bad(cmd, "`fontSize` is from 1 to 1000")) })
+            .transpose()?;
+        Ok(Restyle {
+            shape: string(p, "shape").map(|v| shape_of(cmd, &v)).transpose()?,
+            routing: string(p, "style").map(|v| routing_of(cmd, &v)).transpose()?,
+            size,
+            start: cap_of(cmd, p, "startCap")?,
+            end: cap_of(cmd, p, "endCap")?,
+        })
+    }
+
+    /// Restyle board object `id` (`item`); whether anything about it changed.
+    fn apply(&self, doc: &mut Document, id: NodeId, item: BoardItem) -> Result<bool> {
+        let changed = match item {
+            BoardItem::Shape { shape } => match self.shape.filter(|n| *n != shape) {
+                Some(new) => {
+                    reshape(doc, id, new)?;
+                    true
+                }
+                None => false,
+            },
+            BoardItem::Connector(c) => self.restyle_connector(doc, id, c)?,
+            _ => false,
+        };
+        // Text sizes: shapes' and labels' text (stickies size theirs to fit).
+        let sized = match (self.size, &item) {
+            (Some(size), BoardItem::Shape { .. } | BoardItem::Label { .. }) => resize_text(doc, id, size),
+            _ => false,
+        };
+        Ok(changed || sized)
+    }
+
+    fn restyle_connector(&self, doc: &mut Document, id: NodeId, mut c: Connector) -> Result<bool> {
+        let n = doc.get_mut(id)?;
+        if let Some(r) = self.routing {
+            c.routing = r;
+            n.board = Some(BoardItem::Connector(c));
+        }
+        if let Some(cap) = self.start {
+            n.stroke.cap_start = cap;
+        }
+        if let Some(cap) = self.end {
+            n.stroke.cap_end = cap;
+        }
+        Ok(self.routing.is_some() || self.start.is_some() || self.end.is_some())
+    }
+}
+
+/// Shape with text `id` takes outline `new` (its text room too).
+fn reshape(doc: &mut Document, id: NodeId, new: BoardShape) -> Result<()> {
+    let n = doc.get_mut(id)?;
+    n.board = Some(BoardItem::Shape { shape: new });
+    n.name = new.label().into();
+    let (w, h) = (n.width, n.height);
+    if let Some(l) = n.layout.as_mut() {
+        l.padding = shape_padding(new, w, h);
+    }
+    if let Some(o) = doc.get(id)?.children.first().copied()
+        && let Some(on) = doc.node_mut(o)
+    {
+        on.kind = NodeKind::Vector { network: VectorNetwork::from_path(&new.path(w, h)) };
+        (on.width, on.height, on.transform) = (w, h, Affine::IDENTITY);
+    }
+    Ok(())
+}
+
+/// Board object `id`'s text at `size`; whether it has text.
+fn resize_text(doc: &mut Document, id: NodeId, size: f64) -> bool {
+    let Some(t) = text_of(doc, id) else { return false };
+    if let Some(NodeKind::Text(td)) = doc.node_mut(t).map(|n| &mut n.kind) {
+        set_font_size(td, size);
+        return true;
+    }
+    false
+}
+
 fn set_style(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "board.setStyle";
     require(s, cmd)?;
     let ids = req_targets(cmd, s, p)?;
-    let shape = string(p, "shape").map(|v| shape_of(cmd, &v)).transpose()?;
-    let routing = string(p, "style").map(|v| routing_of(cmd, &v)).transpose()?;
-    let size = num(p, "fontSize")
-        .map(|v| if v.is_finite() && (1.0..=1000.0).contains(&v) { Ok(v) } else { Err(bad(cmd, "`fontSize` is from 1 to 1000")) })
-        .transpose()?;
-    let (start, end) = (cap_of(cmd, p, "startCap")?, cap_of(cmd, p, "endCap")?);
+    let restyle = Restyle::of(cmd, p)?;
     let doc = s.doc_mut()?;
     let mut changed = Vec::new();
     for (id, item) in items(doc, &ids) {
-        let before = changed.len();
-        match item {
-            BoardItem::Shape { shape: old } => {
-                if let Some(new) = shape.filter(|n| *n != old) {
-                    let n = doc.get_mut(id)?;
-                    n.board = Some(BoardItem::Shape { shape: new });
-                    n.name = new.label().into();
-                    let (w, h) = (n.width, n.height);
-                    if let Some(l) = n.layout.as_mut() {
-                        l.padding = shape_padding(new, w, h);
-                    }
-                    if let Some(o) = doc.get(id)?.children.first().copied()
-                        && let Some(on) = doc.node_mut(o)
-                    {
-                        on.kind = NodeKind::Vector { network: VectorNetwork::from_path(&new.path(w, h)) };
-                        (on.width, on.height, on.transform) = (w, h, Affine::IDENTITY);
-                    }
-                    changed.push(id);
-                }
-            }
-            BoardItem::Connector(mut c) => {
-                let n = doc.get_mut(id)?;
-                if let Some(r) = routing {
-                    c.routing = r;
-                    n.board = Some(BoardItem::Connector(c));
-                }
-                if let Some(cap) = start {
-                    n.stroke.cap_start = cap;
-                }
-                if let Some(cap) = end {
-                    n.stroke.cap_end = cap;
-                }
-                if routing.is_some() || start.is_some() || end.is_some() {
-                    changed.push(id);
-                }
-            }
-            _ => {}
-        }
-        // Text sizes: shapes' and labels' text (stickies size theirs to fit).
-        if let (Some(size), Some(t)) =
-            (size, text_of(doc, id).filter(|_| !matches!(doc.node(id).and_then(|n| n.board.as_ref()), Some(BoardItem::Sticky { .. }))))
-            && let Some(NodeKind::Text(td)) = doc.node_mut(t).map(|n| &mut n.kind)
-        {
-            set_font_size(td, size);
-            if changed.len() == before {
-                changed.push(id);
-            }
+        if restyle.apply(doc, id, item)? {
+            changed.push(id);
         }
     }
     if changed.is_empty() {
@@ -778,14 +820,58 @@ fn set_font_size(td: &mut TextData, size: f64) {
     }
 }
 
-/// After layers were copied one by one (`map`: each original's copy), the copied connectors and
-/// labels among `copies` refer to the copies of what they referred to.
-pub(crate) fn rejoin(doc: &mut Document, copies: &[NodeId], map: &std::collections::BTreeMap<NodeId, NodeId>) {
-    for id in copies {
-        if doc.node(*id).is_some_and(|n| matches!(n.board, Some(BoardItem::Connector(_) | BoardItem::Label { .. })))
-            && let Some(b) = doc.node_mut(*id).and_then(|n| n.board.as_mut())
-        {
-            b.remap(map);
+/// Each layer of `sources` (copied one by one, in order, as `copies`) and its copy: the whole
+/// subtrees pair up when they have the same shape (an instance made of a main component may not;
+/// then only the roots do).
+pub(crate) fn copy_map(doc: &Document, sources: &[NodeId], copies: &[NodeId]) -> BTreeMap<NodeId, NodeId> {
+    let mut map = BTreeMap::new();
+    for (s, c) in sources.iter().zip(copies) {
+        let (a, b) = (doc.subtree(*s), doc.subtree(*c));
+        if a.len() == b.len() {
+            map.extend(a.into_iter().zip(b));
+        } else {
+            map.insert(*s, *c);
+        }
+    }
+    map
+}
+
+/// The connectors and labels among copied layers, as `(copy, the original's board item)`, from the
+/// originals in `doc` (`map`: original → copy).
+pub(crate) fn copied_items(doc: &Document, map: &BTreeMap<NodeId, NodeId>) -> Vec<(NodeId, BoardItem)> {
+    map.iter().filter_map(|(o, c)| doc.node(*o).and_then(|n| n.board.clone()).map(|b| (*c, b))).collect()
+}
+
+/// After a copy (`map`: each copied original → its copy; `originals`: the copies' items as the
+/// originals had them), copied connectors join the copies of what they joined and labels follow
+/// the copies of their connectors. From another file (`foreign`), what wasn't copied isn't here: a
+/// connector's end there stays where it is drawn, as a point, and a label without its connector
+/// goes.
+pub(crate) fn rejoin(doc: &mut Document, originals: &[(NodeId, BoardItem)], map: &BTreeMap<NodeId, NodeId>, foreign: bool) {
+    for (copy, item) in originals {
+        let mut item = item.clone();
+        let copied = |n: NodeId| map.contains_key(&n);
+        match &mut item {
+            BoardItem::Connector(c) if foreign => {
+                let ends = ends_now(doc, *copy);
+                for (end, at) in [(&mut c.from, ends.map(|e| e.0)), (&mut c.to, ends.map(|e| e.1))] {
+                    if let (End::Node { node, .. }, Some(p)) = (*end, at)
+                        && !copied(node)
+                    {
+                        *end = End::Point { x: p.x, y: p.y };
+                    }
+                }
+            }
+            BoardItem::Label { connector } if foreign && !copied(*connector) => {
+                let _ = doc.remove(*copy);
+                continue;
+            }
+            BoardItem::Connector(_) | BoardItem::Label { .. } => {}
+            _ => continue,
+        }
+        item.remap(map);
+        if let Some(n) = doc.node_mut(*copy) {
+            n.board = Some(item);
         }
     }
 }
@@ -827,52 +913,31 @@ pub(crate) fn settle_text(doc: &mut Document, before: &Document, touched: &BTree
 }
 
 /// After layout: connectors run between their ends again (an end whose layer is gone stays where
-/// it was), one moved on its own takes its free ends along, and labels sit at their middles.
+/// it was), one moved on its own takes its free ends along, and labels sit at their middles. Only
+/// the connectors and labels an edit can have moved are looked at: touched themselves, or with a
+/// touched (or gone) end, connector or layer around them.
 pub(crate) fn settle_routes(doc: &mut Document, before: &Document, touched: &BTreeSet<NodeId>) {
     if !is_board(doc) || touched.is_empty() {
         return;
     }
+    let hit = |doc: &Document, id: NodeId| touched.contains(&id) || doc.ancestors(id).iter().any(|a| touched.contains(a));
     let (mut connectors, mut labels) = (Vec::new(), Vec::new());
     for n in doc.nodes() {
         match &n.board {
-            Some(BoardItem::Connector(c)) => connectors.push((n.id, *c)),
+            Some(BoardItem::Connector(c)) => {
+                let ends = [c.from.node(), c.to.node()].into_iter().flatten();
+                if hit(doc, n.id) || ends.into_iter().any(|e| !doc.contains(e) || hit(doc, e)) {
+                    connectors.push((n.id, *c));
+                }
+            }
             Some(BoardItem::Label { connector }) => labels.push((n.id, *connector)),
             _ => {}
         }
     }
+    let rerouted: BTreeSet<NodeId> = connectors.iter().map(|(id, _)| *id).collect();
     for (id, mut c) in connectors {
-        let page = doc.page_of(id);
-        let ends = ends_now(doc, id);
-        let mut detached = false;
-        for (k, end) in [&mut c.from, &mut c.to].into_iter().enumerate() {
-            if let End::Node { node, .. } = *end
-                && (!doc.contains(node) || doc.page_of(node) != page)
-            {
-                let p = if k == 0 { ends.map(|e| e.0) } else { ends.map(|e| e.1) };
-                if let Some(p) = p {
-                    *end = End::Point { x: p.x, y: p.y };
-                    detached = true;
-                }
-            }
-        }
-        // Moved by itself (a drag, a nudge): its free ends move with it.
-        let moved = touched.contains(&id)
-            && before.node(id).is_some_and(|b| {
-                b.transform != doc.node(id).map_or(b.transform, |n| n.transform) && b.board == doc.node(id).and_then(|n| n.board.clone())
-            });
-        if moved && let (Some(pts), Some(w)) = (route(doc, &c), doc.node(id).map(|_| doc.world_transform(id))) {
-            let expected = figcraft_geom::points_bounds(pts.iter().copied()).map(|b| b.origin());
-            let delta = expected.map(|e| (w * Point::ZERO) - e);
-            if let Some(d) = delta.filter(|d| d.hypot() > 1e-9) {
-                for end in [&mut c.from, &mut c.to] {
-                    if let End::Point { x, y } = end {
-                        (*x, *y) = (*x + d.x, *y + d.y);
-                        detached = true;
-                    }
-                }
-            }
-        }
-        if detached && let Some(n) = doc.node_mut(id) {
+        let changed = detach_gone_ends(doc, id, &mut c) | carry_free_ends(doc, before, touched, id, &mut c);
+        if changed && let Some(n) = doc.node_mut(id) {
             n.board = Some(BoardItem::Connector(c));
         }
         if let Some(pts) = route(doc, &c) {
@@ -880,19 +945,64 @@ pub(crate) fn settle_routes(doc: &mut Document, before: &Document, touched: &BTr
         }
     }
     for (label, connector) in labels {
-        let Some(mid) = doc.node(connector).and_then(|_| route_mid(doc, connector)) else {
-            let _ = doc.remove(label);
-            continue;
-        };
-        let Some(n) = doc.node(label) else { continue };
-        let pw = n.parent.map_or(Affine::IDENTITY, |p| doc.world_transform(p));
-        let local = pw.inverse() * mid;
-        let t = Affine::translate((local.x - n.width / 2.0, local.y - n.height / 2.0));
-        if n.transform != t
-            && let Some(n) = doc.node_mut(label)
-        {
-            n.transform = t;
+        if rerouted.contains(&connector) || touched.contains(&connector) || hit(doc, label) {
+            place_label(doc, label, connector);
         }
+    }
+}
+
+/// The ends of connector `id` (as `c`) whose layer is gone or on another page stay where they are
+/// drawn, as points. Whether any did.
+fn detach_gone_ends(doc: &Document, id: NodeId, c: &mut Connector) -> bool {
+    let (page, ends) = (doc.page_of(id), ends_now(doc, id));
+    let mut detached = false;
+    for (end, at) in [(&mut c.from, ends.map(|e| e.0)), (&mut c.to, ends.map(|e| e.1))] {
+        if let (End::Node { node, .. }, Some(p)) = (*end, at)
+            && (!doc.contains(node) || doc.page_of(node) != page)
+        {
+            *end = End::Point { x: p.x, y: p.y };
+            detached = true;
+        }
+    }
+    detached
+}
+
+/// Connector `id` (as `c`) moved by itself (a drag, a nudge: its place changed but not what it
+/// joins): its free ends move with it. Whether they did.
+fn carry_free_ends(doc: &Document, before: &Document, touched: &BTreeSet<NodeId>, id: NodeId, c: &mut Connector) -> bool {
+    let (Some(b), Some(n)) = (before.node(id), doc.node(id)) else { return false };
+    if !touched.contains(&id) || b.transform == n.transform || b.board != n.board {
+        return false;
+    }
+    let Some(expected) = route(doc, c).and_then(|pts| figcraft_geom::points_bounds(pts.iter().copied())).map(|b| b.origin()) else { return false };
+    let d = (doc.world_transform(id) * Point::ZERO) - expected;
+    if d.hypot() <= 1e-9 {
+        return false;
+    }
+    let mut moved = false;
+    for end in [&mut c.from, &mut c.to] {
+        if let End::Point { x, y } = end {
+            (*x, *y) = (*x + d.x, *y + d.y);
+            moved = true;
+        }
+    }
+    moved
+}
+
+/// Label `label` at the middle of connector `connector`; gone with it when it is gone.
+fn place_label(doc: &mut Document, label: NodeId, connector: NodeId) {
+    let Some(mid) = doc.node(connector).and_then(|_| route_mid(doc, connector)) else {
+        let _ = doc.remove(label);
+        return;
+    };
+    let Some(n) = doc.node(label) else { return };
+    let pw = n.parent.map_or(Affine::IDENTITY, |p| doc.world_transform(p));
+    let local = pw.inverse() * mid;
+    let t = Affine::translate((local.x - n.width / 2.0, local.y - n.height / 2.0));
+    if n.transform != t
+        && let Some(n) = doc.node_mut(label)
+    {
+        n.transform = t;
     }
 }
 
@@ -964,6 +1074,12 @@ pub fn route(doc: &Document, c: &Connector) -> Option<Vec<Point>> {
         Routing::Elbow => elbow(p0, h0, p1, h1),
     };
     pts.dedup();
+    // A turn that doesn't turn (the ends in line) is no point of the route.
+    let in_line = |i: usize, b: &Point| match (i.checked_sub(1).and_then(|j| pts.get(j)), pts.get(i + 1)) {
+        (Some(a), Some(c)) => (a.x == b.x && b.x == c.x) || (a.y == b.y && b.y == c.y),
+        _ => false,
+    };
+    let pts: Vec<Point> = pts.iter().enumerate().filter(|(i, b)| !in_line(*i, b)).map(|(_, b)| *b).collect();
     pts.iter().all(|p| p.x.is_finite() && p.y.is_finite()).then_some(pts)
 }
 

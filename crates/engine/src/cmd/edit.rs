@@ -495,7 +495,8 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
         out.push(nid);
     }
     // Board connectors copied with what they join join the copies.
-    crate::board::rejoin(doc, &out, &ids.iter().copied().zip(out.iter().copied()).collect());
+    let map = crate::board::copy_map(doc, &ids, &out);
+    crate::board::rejoin(doc, &crate::board::copied_items(doc, &map), &map, false);
     s.set_selection(out.clone());
     s.ds_mut()?.last_duplicate = Some(Duplicated { sources: ids, copies: out.clone() });
     Ok(json!({"ids": out}))
@@ -678,7 +679,9 @@ pub fn paste_into(s: &mut Session, parent: NodeId, at: Option<(f64, f64)>) -> Re
         all.extend(map);
     }
     // Board connectors pasted with what they join join the pasted copies.
-    crate::board::rejoin(doc, &out, &all);
+    let originals: Vec<(NodeId, figcraft_doc::BoardItem)> =
+        clip.nodes.iter().flat_map(|(_, nodes)| nodes).filter_map(|n| Some((*all.get(&n.id)?, n.board.clone()?))).collect();
+    crate::board::rejoin(doc, &originals, &all, !copy_local);
     if let Some(src) = foreign {
         crate::library::adopt_pasted(doc, src, clip.source_path.as_deref(), &all)?;
     }

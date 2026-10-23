@@ -1378,6 +1378,9 @@ impl Session {
                             let idx = doc.index_in_parent(*i).map(|x| x + 1);
                             copies.push(crate::components::copy_in_file(doc, *i, parent, idx)?);
                         }
+                        // Connectors copied with what they join join the copies.
+                        let map = crate::board::copy_map(doc, &ids, &copies);
+                        crate::board::rejoin(doc, &crate::board::copied_items(doc, &map), &map, false);
                         moving = copies;
                         *sel = moving.clone();
                     }

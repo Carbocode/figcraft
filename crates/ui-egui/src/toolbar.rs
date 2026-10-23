@@ -128,7 +128,7 @@ pub(crate) fn bar_width(app: &FigApp) -> f32 {
 /// The main toolbar pill's width: the tool groups with their flyout carets, Resources and
 /// Actions, and the mode switcher (boards: the Design panel's button instead).
 fn main_width(groups: &[Group], board: bool) -> f32 {
-    let (cell, gap) = (32.0, 4.0);
+    let (cell, gap) = (TOOL_CELL, 4.0);
     let carets = groups.iter().filter(|g| g.has_flyout()).count() as f32 * 10.0;
     let end = if board { cell + 16.0 } else { 4.0 * 34.0 + 24.0 };
     groups.len() as f32 * (cell + gap) + carets + 2.0 * (cell + gap) + 16.0 + end
@@ -137,67 +137,97 @@ fn main_width(groups: &[Group], board: bool) -> f32 {
 /// The main toolbar pill: the tool groups with their flyouts, Resources and Actions, then the
 /// Draw · Design · Prototype · Inspect mode switcher (on a board, the Design panel's button).
 fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens, board: bool) {
-    let (cell, gap) = (32.0, 4.0);
     let groups = if board { BOARD_GROUPS } else { GROUPS };
-    let width = main_width(groups, board);
-    let rect = pill(ui, &mut app.ui.nav, canvas, width, t);
-    let current = app.session.tool.tool;
-    let mut x = rect.min.x + 8.0;
+    let rect = pill(ui, &mut app.ui.nav, canvas, main_width(groups, board), t);
     let cy = rect.center().y;
+    let mut x = rect.min.x + 8.0;
     for g in groups {
-        let in_group = g.tools.iter().any(|(tid, _)| *tid == current);
-        let shown = if in_group { current } else { remembered(ui, g.key, g.tools.first().map(|x| x.0).unwrap_or(ToolId::Move)) };
-        let icon = g.tools.iter().find(|(tid, _)| *tid == shown).map(|(_, i)| *i).unwrap_or(Icon::Move);
-        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
-        let resp = tool_cell(ui, t, r, ("tool", g.key), icon, in_group, &format!("{}  {}", tr(shown.label()), pretty_shortcut(shown.shortcut())));
-        if in_group {
-            a11y::prefer(&mut app.ui.nav, Region::Toolbar, resp.id);
+        x = group_cell(app, ui, g, pos2(x, cy), rect.min.y, t);
+    }
+    x = side_buttons(app, ui, x, cy, t);
+    divider(ui, t, x, cy);
+    x += 8.0;
+    if board {
+        // Boards have no prototypes or Dev Mode; the Design panel is hidden until asked for.
+        let r = Rect::from_center_size(pos2(x + TOOL_CELL / 2.0, cy), vec2(TOOL_CELL, TOOL_CELL));
+        let tip = crate::shortcuts::tip(tr("Design panel"), "view.design");
+        if tool_cell(ui, t, r, "board_panel", Icon::Panels, app.ui.board_panel, tip).clicked() {
+            app.run("view.design", json!({}));
         }
-        if resp.clicked() {
-            // Enter (a keyboard click) on the shape or frame tool already chosen places one; the
-            // canvas takes the keyboard.
-            // In Dev Mode the tool goes through `choose`, which returns to the design first.
-            if in_group && shown.draws_shape() && app.ui.right_tab != crate::RightTab::Inspect && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                app.run("tool.place", json!({}));
-                app.ui.nav.go(Region::Canvas);
-            } else {
-                choose(app, shown);
-            }
-        }
-        x += cell;
-        // Flyout chevron.
-        if g.has_flyout() {
-            let cr = Rect::from_center_size(pos2(x + 5.0, cy), vec2(10.0, cell));
-            let cresp = ui.interact(cr, ui.id().with(("flyout", g.key)), Sense::click());
-            let open = app.ui.tool_flyout == Some(g.key);
-            a11y::menu_button(&cresp, tr(g.name), open);
-            if open {
-                a11y::popup(&mut app.ui.nav, cresp.id, flyout_id(g.key));
-            }
-            if cresp.hovered() {
-                ui.painter().rect_filled(cr, CornerRadius::same(4), t.hover);
-            }
-            icons::paint(ui.painter(), Rect::from_center_size(cr.center(), vec2(CARET, CARET)), Icon::Chevron, t.icon_secondary);
-            if cresp.clicked() {
-                app.ui.tool_flyout = if app.ui.tool_flyout == Some(g.key) { None } else { Some(g.key) };
-            }
-            x += 10.0;
-        }
-        x += gap;
-        if app.ui.tool_flyout == Some(g.key) {
-            if g.options == Options::None {
-                flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
-            } else {
-                options_flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
-            }
+    } else {
+        mode_switcher(app, ui, x, cy, t);
+    }
+    help_button(app, ui, canvas, t);
+}
+
+/// A toolbar button's size.
+const TOOL_CELL: f32 = 32.0;
+
+/// Tool group `g` at `at` (its left edge, the pill's middle): the shown tool's button, its flyout
+/// caret and, while open, its flyout above the pill (whose top is `top`). Where the next starts.
+fn group_cell(app: &mut FigApp, ui: &mut Ui, g: &Group, at: egui::Pos2, top: f32, t: &Tokens) -> f32 {
+    let current = app.session.tool.tool;
+    let in_group = g.tools.iter().any(|(tid, _)| *tid == current);
+    let shown = if in_group { current } else { remembered(ui, g.key, g.tools.first().map(|x| x.0).unwrap_or(ToolId::Move)) };
+    let icon = g.tools.iter().find(|(tid, _)| *tid == shown).map(|(_, i)| *i).unwrap_or(Icon::Move);
+    let r = Rect::from_center_size(pos2(at.x + TOOL_CELL / 2.0, at.y), vec2(TOOL_CELL, TOOL_CELL));
+    let resp = tool_cell(ui, t, r, ("tool", g.key), icon, in_group, &format!("{}  {}", tr(shown.label()), pretty_shortcut(shown.shortcut())));
+    if in_group {
+        a11y::prefer(&mut app.ui.nav, Region::Toolbar, resp.id);
+    }
+    if resp.clicked() {
+        // Enter (a keyboard click) on the shape or frame tool already chosen places one; the
+        // canvas takes the keyboard.
+        // In Dev Mode the tool goes through `choose`, which returns to the design first.
+        if in_group && shown.draws_shape() && app.ui.right_tab != crate::RightTab::Inspect && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            app.run("tool.place", json!({}));
+            app.ui.nav.go(Region::Canvas);
+        } else {
+            choose(app, shown);
         }
     }
-    // Resources (components, plugins) opens the Assets panel; Actions palette.
+    let mut x = at.x + TOOL_CELL;
+    if g.has_flyout() {
+        flyout_caret(app, ui, g, pos2(x, at.y), t);
+        x += 10.0;
+    }
+    if app.ui.tool_flyout == Some(g.key) {
+        if g.options == Options::None {
+            flyout(app, ui, g, pos2(r.min.x, top - 8.0));
+        } else {
+            options_flyout(app, ui, g, pos2(r.min.x, top - 8.0));
+        }
+    }
+    x + 4.0
+}
+
+/// The caret after group `g`'s button (at `at`, its left edge and middle): opens or closes its
+/// flyout.
+fn flyout_caret(app: &mut FigApp, ui: &mut Ui, g: &Group, at: egui::Pos2, t: &Tokens) {
+    let cr = Rect::from_center_size(pos2(at.x + 5.0, at.y), vec2(10.0, TOOL_CELL));
+    let cresp = ui.interact(cr, ui.id().with(("flyout", g.key)), Sense::click());
+    let open = app.ui.tool_flyout == Some(g.key);
+    a11y::menu_button(&cresp, tr(g.name), open);
+    if open {
+        a11y::popup(&mut app.ui.nav, cresp.id, flyout_id(g.key));
+    }
+    if cresp.hovered() {
+        ui.painter().rect_filled(cr, CornerRadius::same(4), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(cr.center(), vec2(CARET, CARET)), Icon::Chevron, t.icon_secondary);
+    if cresp.clicked() {
+        app.ui.tool_flyout = if open { None } else { Some(g.key) };
+    }
+}
+
+/// Resources (components, plugins: the Assets panel) and the Actions palette's button, from `x`.
+/// Where the next part starts.
+fn side_buttons(app: &mut FigApp, ui: &mut Ui, mut x: f32, cy: f32, t: &Tokens) -> f32 {
     for (icon, tip, id) in [
         (Icon::Assets, crate::shortcuts::key_tip(tr("Resources"), "Shift+I"), "resources"),
         (Icon::Actions, crate::shortcuts::tip(tr("Actions"), "app.actions"), "actions"),
     ] {
-        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
+        let r = Rect::from_center_size(pos2(x + TOOL_CELL / 2.0, cy), vec2(TOOL_CELL, TOOL_CELL));
         let resp = ui.interact(r, ui.id().with(id), Sense::click()).tip(tip);
         if id == "actions" {
             app.ui.actions_rect = Some(r);
@@ -217,21 +247,13 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens, board: 
                 app.run("view.assets", json!({}));
             }
         }
-        x += cell + 4.0;
+        x += TOOL_CELL + 4.0;
     }
-    divider(ui, t, x, cy);
-    x += 8.0;
-    if board {
-        // Boards have no prototypes or Dev Mode; the Design panel is hidden until asked for.
-        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
-        let open = app.ui.board_panel;
-        if tool_cell(ui, t, r, "board_panel", Icon::Panels, open, crate::shortcuts::tip(tr("Design panel"), "view.design")).clicked() {
-            app.run("view.design", json!({}));
-        }
-        help_button(app, ui, canvas, t);
-        return;
-    }
-    // Mode switcher: Draw · Design · Prototype · Inspect (code).
+    x
+}
+
+/// The mode switcher from `x`: Draw · Design · Prototype · Inspect (code).
+fn mode_switcher(app: &mut FigApp, ui: &mut Ui, x: f32, cy: f32, t: &Tokens) {
     let modes = [(Icon::Pencil, tr("Draw")), (Icon::Frame, tr("Design")), (Icon::Prototype, tr("Prototype")), (Icon::Code, tr("Inspect"))];
     let active = match app.ui.right_tab {
         crate::RightTab::Design if app.session.tool.tool == ToolId::Pencil => 0,
@@ -253,23 +275,27 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens, board: 
         }
         icons::paint(ui.painter(), glyph_rect(r), *icon, if i == active { t.accent_text } else { t.icon_secondary });
         if resp.clicked() {
-            match i {
-                0 => {
-                    app.ui.right_tab = crate::RightTab::Design;
-                    app.run("tool.set", json!({"tool": "pencil"}));
-                }
-                1 => {
-                    app.ui.right_tab = crate::RightTab::Design;
-                    if app.session.tool.tool == ToolId::Pencil {
-                        app.run("tool.set", json!({"tool": "move"}));
-                    }
-                }
-                2 => app.ui.right_tab = crate::RightTab::Prototype,
-                _ => app.ui.right_tab = crate::RightTab::Inspect,
-            }
+            pick_mode(app, i);
         }
     }
-    help_button(app, ui, canvas, t);
+}
+
+/// Mode `i` of the switcher chosen.
+fn pick_mode(app: &mut FigApp, i: usize) {
+    match i {
+        0 => {
+            app.ui.right_tab = crate::RightTab::Design;
+            app.run("tool.set", json!({"tool": "pencil"}));
+        }
+        1 => {
+            app.ui.right_tab = crate::RightTab::Design;
+            if app.session.tool.tool == ToolId::Pencil {
+                app.run("tool.set", json!({"tool": "move"}));
+            }
+        }
+        2 => app.ui.right_tab = crate::RightTab::Prototype,
+        _ => app.ui.right_tab = crate::RightTab::Inspect,
+    }
 }
 
 /// The floating help button at the bottom right of the canvas.

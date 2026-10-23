@@ -1616,6 +1616,8 @@ mod binding_lists_tests;
 #[cfg(test)]
 mod board_tests;
 #[cfg(test)]
+mod board_tools_tests;
+#[cfg(test)]
 mod booleans_tests;
 #[cfg(test)]
 mod bound_alpha_tests;

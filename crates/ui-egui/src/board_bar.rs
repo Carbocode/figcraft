@@ -98,24 +98,25 @@ struct Has {
     connector: Option<(Routing, bool)>,
 }
 
+/// What the selected board objects take from the bar (layers that aren't board objects, a section
+/// say, are left out); `None` when none takes anything.
 fn has(app: &FigApp) -> Option<Has> {
     let ds = app.session.ds().ok()?;
     let mut h = Has::default();
-    for id in &ds.selection {
-        let n = ds.doc.node(*id)?;
-        match n.board.as_ref()? {
-            BoardItem::Sticky { .. } | BoardItem::Ink => h.color = true,
-            BoardItem::Shape { shape } => {
+    for n in ds.selection.iter().filter_map(|id| ds.doc.node(*id)) {
+        match &n.board {
+            Some(BoardItem::Sticky { .. } | BoardItem::Ink) => h.color = true,
+            Some(BoardItem::Shape { shape }) => {
                 h.color = true;
                 h.text = true;
                 h.shape = Some(*shape);
             }
-            BoardItem::Connector(c) => {
+            Some(BoardItem::Connector(c)) => {
                 h.color = true;
                 h.connector = Some((c.routing, n.stroke.cap_end != StrokeCap::None));
             }
-            BoardItem::Label { .. } => h.text = true,
-            BoardItem::Stamp { .. } => {}
+            Some(BoardItem::Label { .. }) => h.text = true,
+            Some(BoardItem::Stamp { .. }) | None => {}
         }
     }
     (h.color || h.text || h.connector.is_some()).then_some(h)
@@ -124,34 +125,50 @@ fn has(app: &FigApp) -> Option<Has> {
 const CELL: f32 = 28.0;
 const SWATCH: f32 = 20.0;
 const GAP: f32 = 4.0;
+/// The room each part takes after its controls (the divider and the gap around it).
+const PART_END: f32 = 8.0;
 
-/// The bar above a board's selection, while nothing is being dragged.
+impl Has {
+    /// The bar's width for these parts.
+    fn width(&self) -> f32 {
+        let mut w = 8.0;
+        if self.color {
+            w += BOARD_COLORS.len() as f32 * (SWATCH + GAP) + PART_END;
+        }
+        if self.shape.is_some() {
+            w += CELL + 12.0 + GAP + PART_END;
+        }
+        if self.text {
+            w += TEXT_SIZES.len() as f32 * (CELL + 2.0) + PART_END;
+        }
+        if self.connector.is_some() {
+            w += 3.0 * (CELL + 2.0) + PART_END;
+        }
+        w
+    }
+}
+
+/// Where a bar `size` big goes for the selection's screen box `sel`: centred above it, below it
+/// when there is no room above, inside the canvas.
+pub(crate) fn place(sel: Rect, size: egui::Vec2, canvas: Rect) -> Pos2 {
+    let w = size.x;
+    let cx = sel.center().x.clamp(canvas.min.x + w / 2.0 + 8.0, (canvas.max.x - w / 2.0 - 8.0).max(canvas.min.x + w / 2.0 + 8.0));
+    let above = sel.min.y - 14.0 - size.y;
+    let y = if above > canvas.min.y + 8.0 { above } else { (sel.max.y + 14.0).min(canvas.max.y - size.y - 80.0) };
+    pos2(cx - w / 2.0, y)
+}
+
+/// The bar above a board's selection, while nothing is being dragged and the file can be edited.
 pub fn show(app: &mut FigApp, ctx: &egui::Context) {
-    if app.session.tool.busy() || !app.session.doc().is_ok_and(figcraft_engine::board::is_board) {
+    let editable = app.session.active_read_only().is_none();
+    if app.session.tool.busy() || !editable || !app.session.doc().is_ok_and(figcraft_engine::board::is_board) {
         return;
     }
     let Some(h) = has(app) else { return };
     let Some(b) = app.session.ds().ok().and_then(|ds| ds.doc.bounds_of(&ds.selection)) else { return };
-    let (top, bottom) = (app.to_screen(b.x0, b.y0), app.to_screen(b.x1, b.y1));
-    let mut w = 8.0;
-    if h.color {
-        w += BOARD_COLORS.len() as f32 * (SWATCH + GAP) + 8.0;
-    }
-    if h.shape.is_some() {
-        w += CELL + 12.0 + 8.0;
-    }
-    if h.text {
-        w += TEXT_SIZES.len() as f32 * (CELL + 2.0) + 8.0;
-    }
-    if h.connector.is_some() {
-        w += 3.0 * (CELL + 2.0) + 8.0;
-    }
-    let size = vec2(w, 40.0);
-    let canvas = app.canvas.rect;
-    let cx = ((top.x + bottom.x) / 2.0).clamp(canvas.min.x + w / 2.0 + 8.0, (canvas.max.x - w / 2.0 - 8.0).max(canvas.min.x + w / 2.0 + 8.0));
-    let above = top.y - 14.0 - size.y;
-    let y = if above > canvas.min.y + 8.0 { above } else { (bottom.y + 14.0).min(canvas.max.y - size.y - 80.0) };
-    let at = pos2(cx - w / 2.0, y);
+    let sel = Rect::from_two_pos(app.to_screen(b.x0, b.y0), app.to_screen(b.x1, b.y1));
+    let size = vec2(h.width(), 40.0);
+    let at = place(sel, size, app.canvas.rect);
     let t = Tokens::get(ctx);
     egui::Area::new(egui::Id::new("board_bar")).fixed_pos(at).order(egui::Order::Middle).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::click());
@@ -160,77 +177,99 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
         p.rect_filled(rect.expand(2.0).translate(vec2(0.0, 1.0)), CornerRadius::same(12), Color32::from_black_alpha(18));
         p.rect_filled(rect, CornerRadius::same(10), t.panel);
         p.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0, t.border), StrokeKind::Inside);
-        let mut x = rect.min.x + 8.0;
         let cy = rect.center().y;
+        let mut x = rect.min.x + 8.0;
         if h.color {
-            for (i, (name, c)) in BOARD_COLORS.iter().enumerate() {
-                let r = Rect::from_center_size(pos2(x + SWATCH / 2.0, cy), vec2(SWATCH, SWATCH));
-                let resp = ui.interact(r, ui.id().with(("bb_color", i)), Sense::click()).on_hover_text(tr(color_label(name)));
-                a11y::button(&resp, tr(color_label(name)));
-                if resp.hovered() {
-                    ui.painter().rect_filled(r.expand(2.0), CornerRadius::same(6), t.hover);
-                }
-                paint_choice(ui.painter(), r, &Mark::Color(*c), t.icon);
-                if resp.clicked() {
-                    app.run("board.setColor", json!({"color": name}));
-                }
-                x += SWATCH + GAP;
-            }
-            x = divider(ui, &t, x, cy);
+            x = color_part(app, ui, x, cy, &t);
         }
         if let Some(shape) = h.shape {
-            let r = Rect::from_min_size(pos2(x, cy - CELL / 2.0), vec2(CELL + 12.0, CELL));
-            let resp = ui.interact(r, ui.id().with("bb_shape"), Sense::click()).on_hover_text(tr("Shape"));
-            a11y::menu_button(&resp, tr("Shape"), a11y::menu_open(&resp));
-            if resp.hovered() {
-                ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
-            }
-            paint_choice(ui.painter(), Rect::from_center_size(pos2(r.min.x + CELL / 2.0, cy), vec2(18.0, 18.0)), &Mark::Shape(shape), t.icon);
-            icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 7.0, cy), vec2(12.0, 12.0)), Icon::Chevron, t.icon_secondary);
-            crate::right::menu_popup(&resp).show(|ui| {
-                for b in BoardShape::ALL {
-                    let art = |p: &egui::Painter, row: Rect, ink: Color32| {
-                        paint_choice(p, Rect::from_center_size(pos2(row.max.x - 16.0, row.center().y), vec2(16.0, 16.0)), &Mark::Shape(b), ink)
-                    };
-                    if crate::right::menu_item_with(ui, tr(b.label()), "", 24.0, art) {
-                        app.run("board.setStyle", json!({"shape": b.id()}));
-                        ui.close();
-                    }
-                }
-            });
-            x = divider(ui, &t, x + CELL + 12.0 + GAP, cy);
+            x = shape_part(app, ui, shape, pos2(x, cy), &t);
         }
         if h.text {
-            for (label, size) in TEXT_SIZES {
-                let r = Rect::from_center_size(pos2(x + CELL / 2.0, cy), vec2(CELL, CELL));
-                let resp = ui.interact(r, ui.id().with(("bb_size", label)), Sense::click()).on_hover_text(tr("Text size"));
-                a11y::button(&resp, &format!("{} {label}", tr("Text size")));
-                if resp.hovered() {
-                    ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
-                }
-                ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, semibold(11.0), t.text);
-                if resp.clicked() {
-                    app.run("board.setStyle", json!({"fontSize": size}));
-                }
-                x += CELL + 2.0;
-            }
-            x = divider(ui, &t, x, cy);
+            x = size_part(app, ui, x, cy, &t);
         }
         if let Some((routing, arrow)) = h.connector {
-            let cells = [
-                (Icon::Line, tr("Straight"), routing == Routing::Straight, json!({"style": "straight"})),
-                (Icon::Connector, tr("Elbow"), routing == Routing::Elbow, json!({"style": "elbow"})),
-                (Icon::Arrow, tr("Arrow at the end"), arrow, json!({"endCap": if arrow { "none" } else { "triangleArrow" }})),
-            ];
-            for (i, (icon, tip, on, params)) in cells.into_iter().enumerate() {
-                let r = Rect::from_center_size(pos2(x + CELL / 2.0, cy), vec2(CELL, CELL));
-                if crate::toolbar::tool_cell(ui, &t, r, ("bb_line", i), icon, on, tip).clicked() {
-                    app.run("board.setStyle", params);
-                }
-                x += CELL + 2.0;
+            line_part(app, ui, (routing, arrow), pos2(x, cy), &t);
+        }
+    });
+}
+
+/// The board colours from `x` (`board.setColor`); where the next part starts.
+fn color_part(app: &mut FigApp, ui: &mut Ui, mut x: f32, cy: f32, t: &Tokens) -> f32 {
+    for (i, (name, c)) in BOARD_COLORS.iter().enumerate() {
+        let r = Rect::from_center_size(pos2(x + SWATCH / 2.0, cy), vec2(SWATCH, SWATCH));
+        let resp = ui.interact(r, ui.id().with(("bb_color", i)), Sense::click()).on_hover_text(tr(color_label(name)));
+        a11y::button(&resp, tr(color_label(name)));
+        if resp.hovered() {
+            ui.painter().rect_filled(r.expand(2.0), CornerRadius::same(6), t.hover);
+        }
+        paint_choice(ui.painter(), r, &Mark::Color(*c), t.icon);
+        if resp.clicked() {
+            app.run("board.setColor", json!({"color": name}));
+        }
+        x += SWATCH + GAP;
+    }
+    divider(ui, t, x, cy)
+}
+
+/// The shape menu at `at` (its left edge and middle), showing `shape`; where the next part starts.
+fn shape_part(app: &mut FigApp, ui: &mut Ui, shape: BoardShape, at: Pos2, t: &Tokens) -> f32 {
+    let r = Rect::from_min_size(pos2(at.x, at.y - CELL / 2.0), vec2(CELL + 12.0, CELL));
+    let resp = ui.interact(r, ui.id().with("bb_shape"), Sense::click()).on_hover_text(tr("Shape"));
+    a11y::menu_button(&resp, tr("Shape"), a11y::menu_open(&resp));
+    if resp.hovered() {
+        ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+    }
+    paint_choice(ui.painter(), Rect::from_center_size(pos2(r.min.x + CELL / 2.0, at.y), vec2(18.0, 18.0)), &Mark::Shape(shape), t.icon);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 7.0, at.y), vec2(12.0, 12.0)), Icon::Chevron, t.icon_secondary);
+    crate::right::menu_popup(&resp).show(|ui| {
+        for b in BoardShape::ALL {
+            let art = |p: &egui::Painter, row: Rect, ink: Color32| {
+                paint_choice(p, Rect::from_center_size(pos2(row.max.x - 16.0, row.center().y), vec2(16.0, 16.0)), &Mark::Shape(b), ink)
+            };
+            if crate::right::menu_item_with(ui, tr(b.label()), "", 24.0, art) {
+                app.run("board.setStyle", json!({"shape": b.id()}));
+                ui.close();
             }
         }
     });
+    divider(ui, t, at.x + CELL + 12.0 + GAP, at.y)
+}
+
+/// The text sizes from `x` (`board.setStyle {fontSize}`); where the next part starts.
+fn size_part(app: &mut FigApp, ui: &mut Ui, mut x: f32, cy: f32, t: &Tokens) -> f32 {
+    for (label, size) in TEXT_SIZES {
+        let r = Rect::from_center_size(pos2(x + CELL / 2.0, cy), vec2(CELL, CELL));
+        let resp = ui.interact(r, ui.id().with(("bb_size", label)), Sense::click()).on_hover_text(tr("Text size"));
+        a11y::button(&resp, &format!("{} {label}", tr("Text size")));
+        if resp.hovered() {
+            ui.painter().rect_filled(r, CornerRadius::same(5), t.hover);
+        }
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, semibold(11.0), t.text);
+        if resp.clicked() {
+            app.run("board.setStyle", json!({"fontSize": size}));
+        }
+        x += CELL + 2.0;
+    }
+    divider(ui, t, x, cy)
+}
+
+/// A connector's routing (straight, elbow) and end arrow at `at`, as they are now (`line`).
+fn line_part(app: &mut FigApp, ui: &mut Ui, line: (Routing, bool), at: Pos2, t: &Tokens) {
+    let (routing, arrow) = line;
+    let cells = [
+        (Icon::Line, tr("Straight"), routing == Routing::Straight, json!({"style": "straight"})),
+        (Icon::Connector, tr("Elbow"), routing == Routing::Elbow, json!({"style": "elbow"})),
+        (Icon::Arrow, tr("Arrow at the end"), arrow, json!({"endCap": if arrow { "none" } else { "triangleArrow" }})),
+    ];
+    let mut x = at.x;
+    for (i, (icon, tip, on, params)) in cells.into_iter().enumerate() {
+        let r = Rect::from_center_size(pos2(x + CELL / 2.0, at.y), vec2(CELL, CELL));
+        if crate::toolbar::tool_cell(ui, t, r, ("bb_line", i), icon, on, tip).clicked() {
+            app.run("board.setStyle", params);
+        }
+        x += CELL + 2.0;
+    }
 }
 
 /// A thin separator after `x`; where the next part starts.
