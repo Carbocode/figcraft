@@ -74,23 +74,27 @@ pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>)
         }
         // Text from elsewhere when it's newer than our copy, or when we have nothing to paste.
         if let Some(text) = sys_text.filter(|_| app.ui.last_copy.is_some() || app.session.clipboard.nodes.is_empty()) {
-            // A comment's link opens its thread.
-            if text.trim().starts_with("figcraft://comment/") {
-                app.run("comment.open", json!({"link": text.trim()}));
-            } else if dev_mode_refuses(app, "edit.paste") {
-                // Dev Mode: the note says why nothing was pasted.
-            } else if figcraft_engine::looks_like_svg(&text) {
-                use base64::Engine as _;
-                let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-                app.run_user("file.import", json!({"data": b64, "name": "Pasted SVG.svg", "x": cx, "y": cy, "center": at.is_none()}));
-            } else {
-                app.run("text.create", json!({"text": text, "x": cx, "y": cy}));
-            }
-            return;
+            return paste_text(app, &text, (cx, cy), at.is_none());
         }
     }
     if !dev_mode_refuses(app, "edit.paste") {
         app.run("edit.paste", at.map_or(json!({}), |(x, y)| json!({"x": x, "y": y})));
+    }
+}
+
+/// Paste text from another app at `(cx, cy)` (`center`: centred there): a comment's link opens its
+/// thread, SVG imports, anything else becomes a text layer.
+fn paste_text(app: &mut FigApp, text: &str, (cx, cy): (f64, f64), center: bool) {
+    if text.trim().starts_with("figcraft://comment/") {
+        app.run("comment.open", json!({"link": text.trim()}));
+    } else if dev_mode_refuses(app, "edit.paste") {
+        // Dev Mode: the note says why nothing was pasted.
+    } else if figcraft_engine::looks_like_svg(text) {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        app.run_user("file.import", json!({"data": b64, "name": "Pasted SVG.svg", "x": cx, "y": cy, "center": center}));
+    } else {
+        app.run("text.create", json!({"text": text, "x": cx, "y": cy}));
     }
 }
 
