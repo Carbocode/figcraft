@@ -1135,6 +1135,15 @@ impl Session {
     /// A press with a board tool: place a sticky, shape or stamp, start a connector or a stroke,
     /// or start erasing.
     pub(crate) fn board_down(&mut self, ev: &PointerEvent) -> Result<()> {
+        // A board tool kept while a design file came to the front: back to Move for this press.
+        if !is_board(self.doc()?) {
+            self.tool.tool = ToolId::Move;
+            return self.pointer(ev);
+        }
+        // A sticky still being typed in ends first, so the next object is an undo step of its own.
+        if self.ds()?.text_edit.is_some() {
+            crate::textedit::end(self)?;
+        }
         match self.tool.tool {
             ToolId::Sticky => {
                 let half = STICKY / 2.0;

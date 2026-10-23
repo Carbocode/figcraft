@@ -242,3 +242,32 @@ fn an_ink_stroke_ends_where_the_button_comes_up() {
     let b = doc.world_bounds(ink).unwrap();
     assert!(b.x0.abs() < 6.0 && (b.x1 - 150.0).abs() < 6.0, "from 0 to 150 (stroke width aside): {b:?}");
 }
+
+#[test]
+fn a_second_sticky_ends_the_first_ones_typing_and_undoes_alone() {
+    let mut s = board();
+    s.execute("tool.sticky", &json!({})).unwrap();
+    s.prefs.keep_tool = true;
+    s.pointer(&PointerEvent::at(PointerKind::Down, 100.0, 100.0, 1.0)).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Up, 100.0, 100.0, 1.0)).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Down, 500.0, 100.0, 1.0)).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Up, 500.0, 100.0, 1.0)).unwrap();
+    let stickies = |s: &Session| s.doc().unwrap().nodes().filter(|n| matches!(n.board, Some(BoardItem::Sticky { .. }))).count();
+    assert_eq!(stickies(&s), 2);
+    crate::textedit::end(&mut s).unwrap();
+    s.undo().unwrap();
+    assert_eq!(stickies(&s), 1, "the second sticky is its own undo step");
+}
+
+#[test]
+fn a_board_tool_left_on_presses_as_move_in_a_design_file() {
+    let mut s = board();
+    s.execute("tool.sticky", &json!({})).unwrap();
+    s.execute("file.new", &json!({})).unwrap();
+    let r = id(&s.execute("shape.rectangle", &json!({"x": 0, "y": 0, "width": 100, "height": 100})).unwrap(), "id");
+    s.execute("select.none", &json!({})).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Down, 50.0, 50.0, 1.0)).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Up, 50.0, 50.0, 1.0)).unwrap();
+    assert_eq!(s.tool.tool, ToolId::Move);
+    assert_eq!(s.selection(), vec![r], "the press selected as Move does");
+}
