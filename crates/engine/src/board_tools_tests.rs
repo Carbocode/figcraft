@@ -229,3 +229,16 @@ fn the_shape_stamp_highlighter_and_connector_tools_and_double_clicks() {
     let te = s.ds().unwrap().text_edit.clone().expect("typing in the label");
     assert_eq!(crate::board::owner_of_text(s.doc().unwrap(), te.id), Some(label));
 }
+
+#[test]
+fn an_ink_stroke_ends_where_the_button_comes_up() {
+    let mut s = board();
+    s.execute("tool.marker", &json!({})).unwrap();
+    // Down and up with no move between: the stroke still runs from the press to the release.
+    s.pointer(&PointerEvent::at(PointerKind::Down, 0.0, 0.0, 1.0)).unwrap();
+    s.pointer(&PointerEvent::at(PointerKind::Up, 150.0, 0.0, 1.0)).unwrap();
+    let doc = s.doc().unwrap();
+    let ink = doc.nodes().find(|n| matches!(n.board, Some(BoardItem::Ink))).map(|n| n.id).expect("a stroke");
+    let b = doc.world_bounds(ink).unwrap();
+    assert!(b.x0.abs() < 6.0 && (b.x1 - 150.0).abs() < 6.0, "from 0 to 150 (stroke width aside): {b:?}");
+}

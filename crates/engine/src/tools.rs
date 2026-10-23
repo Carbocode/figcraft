@@ -1930,8 +1930,13 @@ impl Session {
                     self.tool.tool = t;
                 }
             }
-            Gesture::Pencil { points, pressure } => {
+            Gesture::Pencil { mut points, mut pressure } => {
                 self.tool.overlay.pen.clear();
+                // The stroke ends where the button came up, even without a move to get there.
+                if points.last().is_none_or(|l| (*l - ev.p()).hypot() > 0.5 / ev.zoom.max(1e-6)) {
+                    points.push(ev.p());
+                    pressure.push(ev.pressure);
+                }
                 self.pencil_finish(&points, &pressure)?;
             }
             Gesture::Connect { from, start } => self.connect_up(ev, from, start)?,
