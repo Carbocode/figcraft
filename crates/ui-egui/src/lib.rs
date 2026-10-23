@@ -8,6 +8,7 @@
 pub mod a11y;
 pub mod assets_panel;
 pub mod bidi;
+pub mod board_bar;
 pub mod branch_ui;
 pub mod canvas;
 pub mod cjk;
@@ -577,6 +578,8 @@ pub struct UiState {
     pub dark: bool,
     pub follow_system: bool,
     pub tool_flyout: Option<&'static str>,
+    /// On a board: the Design panel is shown (boards hide it until asked for).
+    pub board_panel: bool,
     pub last_error: Option<String>,
     /// Files dropped on the home screen or the canvas, opened once their card has been on screen
     /// ([`pending_open::pending_opens`]), and the frames it has been drawn.
@@ -716,6 +719,7 @@ impl Default for UiState {
             dark: false,
             follow_system: false,
             tool_flyout: None,
+            board_panel: false,
             last_error: None,
             pending_opens: Vec::new(),
             pending_open_frames: 0,
@@ -981,7 +985,15 @@ impl FigApp {
                 "dialog.missingFonts" => missing_fonts::request(self),
                 "panel.shortcuts" => self.ui.shortcuts_panel = !self.ui.shortcuts_panel,
                 "palette.actions" => menus::toggle_palette(&mut self.ui),
+                "panel.design" if self.session.doc().is_ok_and(figcraft_engine::board::is_board) => self.ui.board_panel = !self.ui.board_panel,
                 "panel.design" => self.ui.right_tab = RightTab::Design,
+                "board.editText" => {
+                    if let Some(id) = r.data.get("id").and_then(figcraft_engine::params::id_of)
+                        && let Err(e) = figcraft_engine::board::edit_text(&mut self.session, id)
+                    {
+                        self.toast(e.to_string());
+                    }
+                }
                 "panel.prototype" => self.ui.right_tab = RightTab::Prototype,
                 "panel.designPrototype" => {
                     self.ui.right_tab = if self.ui.right_tab == RightTab::Prototype { RightTab::Design } else { RightTab::Prototype };
@@ -1602,6 +1614,12 @@ impl FigApp {
             return;
         }
         let hidden = self.session.ds().map(|d| d.view.ui_hidden).unwrap_or(false);
+        // Boards have no prototypes or Dev Mode, and show the Design panel only when asked.
+        let board = self.session.doc().is_ok_and(figcraft_engine::board::is_board);
+        if board {
+            self.ui.right_tab = RightTab::Design;
+        }
+        let right_open = !hidden && (!board || self.ui.board_panel);
         if !hidden {
             egui::Panel::left("left_rail")
                 .exact_size(56.0)
@@ -1615,6 +1633,7 @@ impl FigApp {
         // The panels are as wide as asked, less in a window too small for them and the canvas.
         let left_open = !hidden && !self.ui.left_collapsed;
         let (left_w, right_w) = fit_panels(ui.available_width(), left_open.then_some(self.ui.left_width), self.ui.right_width);
+        let right_w = if right_open { right_w } else { 0.0 };
         let rows = ui.available_rect_before_wrap().y_range();
         let mut edges: Vec<(&str, f32, f32, f32)> = Vec::new();
         if left_open {
@@ -1633,7 +1652,7 @@ impl FigApp {
                     layers::left_panel(self, ui)
                 });
         }
-        if !hidden {
+        if right_open {
             edges.push(("right", ui.available_rect_before_wrap().max.x - right_w, right_w, -1.0));
             egui::Panel::right("right_panel")
                 .resizable(false)

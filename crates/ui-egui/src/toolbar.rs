@@ -28,23 +28,35 @@ struct Group {
     /// The flyout button's name for screen readers.
     name: &'static str,
     tools: &'static [(ToolId, Icon)],
+    /// What a one-tool group's flyout offers instead of tools (boards: colours, shapes, stamps).
+    options: Options,
+}
+
+/// The choices a board tool's flyout shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Options {
+    None,
+    Colors,
+    Shapes,
+    Stamps,
+}
+
+impl Group {
+    const fn tools(key: &'static str, name: &'static str, tools: &'static [(ToolId, Icon)]) -> Group {
+        Group { key, name, tools, options: Options::None }
+    }
+    fn has_flyout(&self) -> bool {
+        self.tools.len() > 1 || self.options != Options::None
+    }
 }
 
 const GROUPS: &[Group] = &[
-    Group {
-        key: "move",
-        name: tr_noop("Move tools"),
-        tools: &[(ToolId::Move, Icon::Move), (ToolId::Hand, Icon::Hand), (ToolId::Scale, Icon::Scale)],
-    },
-    Group {
-        key: "frame",
-        name: tr_noop("Frame tools"),
-        tools: &[(ToolId::Frame, Icon::Frame), (ToolId::Section, Icon::Section), (ToolId::Slice, Icon::Slice)],
-    },
-    Group {
-        key: "shape",
-        name: tr_noop("Shape tools"),
-        tools: &[
+    Group::tools("move", tr_noop("Move tools"), &[(ToolId::Move, Icon::Move), (ToolId::Hand, Icon::Hand), (ToolId::Scale, Icon::Scale)]),
+    Group::tools("frame", tr_noop("Frame tools"), &[(ToolId::Frame, Icon::Frame), (ToolId::Section, Icon::Section), (ToolId::Slice, Icon::Slice)]),
+    Group::tools(
+        "shape",
+        tr_noop("Shape tools"),
+        &[
             (ToolId::Rectangle, Icon::Rectangle),
             (ToolId::Line, Icon::Line),
             (ToolId::Arrow, Icon::Arrow),
@@ -52,14 +64,31 @@ const GROUPS: &[Group] = &[
             (ToolId::Polygon, Icon::Polygon),
             (ToolId::Star, Icon::Star),
         ],
-    },
-    Group {
-        key: "pen",
-        name: tr_noop("Drawing tools"),
-        tools: &[(ToolId::Pen, Icon::Pen), (ToolId::Pencil, Icon::Pencil), (ToolId::ShapeBuilder, Icon::ShapeBuilder)],
-    },
-    Group { key: "text", name: tr_noop("Text"), tools: &[(ToolId::Text, Icon::Text)] },
-    Group { key: "comment", name: tr_noop("Comment"), tools: &[(ToolId::Comment, Icon::Comment)] },
+    ),
+    Group::tools(
+        "pen",
+        tr_noop("Drawing tools"),
+        &[(ToolId::Pen, Icon::Pen), (ToolId::Pencil, Icon::Pencil), (ToolId::ShapeBuilder, Icon::ShapeBuilder)],
+    ),
+    Group::tools("text", tr_noop("Text"), &[(ToolId::Text, Icon::Text)]),
+    Group::tools("comment", tr_noop("Comment"), &[(ToolId::Comment, Icon::Comment)]),
+];
+
+/// A board's toolbar: moving around, ink, stickies, shapes, connectors, text, sections, stamps.
+const BOARD_GROUPS: &[Group] = &[
+    Group::tools("bmove", tr_noop("Move tools"), &[(ToolId::Move, Icon::Move), (ToolId::Hand, Icon::Hand)]),
+    Group::tools(
+        "ink",
+        tr_noop("Drawing tools"),
+        &[(ToolId::Marker, Icon::Marker), (ToolId::Highlighter, Icon::Highlighter), (ToolId::Eraser, Icon::Eraser)],
+    ),
+    Group { key: "sticky", name: tr_noop("Sticky note colors"), tools: &[(ToolId::Sticky, Icon::Board)], options: Options::Colors },
+    Group { key: "bshape", name: tr_noop("Shapes"), tools: &[(ToolId::BoardShape, Icon::Shapes)], options: Options::Shapes },
+    Group::tools("connector", tr_noop("Connector"), &[(ToolId::Connector, Icon::Connector)]),
+    Group::tools("text", tr_noop("Text"), &[(ToolId::Text, Icon::Text)]),
+    Group::tools("section", tr_noop("Section"), &[(ToolId::Section, Icon::Section)]),
+    Group { key: "stamp", name: tr_noop("Stamps"), tools: &[(ToolId::Stamp, Icon::Stamp)], options: Options::Stamps },
+    Group::tools("comment", tr_noop("Comment"), &[(ToolId::Comment, Icon::Comment)]),
 ];
 
 fn remembered(ui: &Ui, key: &str, default: ToolId) -> ToolId {
@@ -85,25 +114,37 @@ pub fn show(app: &mut FigApp, ui: &mut Ui) {
         builder_toolbar(app, ui);
         return;
     }
-    main_toolbar(app, ui, canvas, &t);
+    let board = app.session.doc().is_ok_and(figcraft_engine::board::is_board);
+    main_toolbar(app, ui, canvas, &t, board);
 }
 
-/// The main toolbar pill's width: the Actions palette matches it so the two read as one bar.
-pub(crate) fn main_width() -> f32 {
+/// The main toolbar pill's width for the active file: the Actions palette matches it so the two
+/// read as one bar.
+pub(crate) fn bar_width(app: &FigApp) -> f32 {
+    let board = app.session.doc().is_ok_and(figcraft_engine::board::is_board);
+    main_width(if board { BOARD_GROUPS } else { GROUPS }, board)
+}
+
+/// The main toolbar pill's width: the tool groups with their flyout carets, Resources and
+/// Actions, and the mode switcher (boards: the Design panel's button instead).
+fn main_width(groups: &[Group], board: bool) -> f32 {
     let (cell, gap) = (32.0, 4.0);
-    GROUPS.len() as f32 * (cell + gap) + gap * 10.0 + 2.0 * (cell + gap) + 16.0 + 4.0 * 34.0 + 24.0
+    let carets = groups.iter().filter(|g| g.has_flyout()).count() as f32 * 10.0;
+    let end = if board { cell + 16.0 } else { 4.0 * 34.0 + 24.0 };
+    groups.len() as f32 * (cell + gap) + carets + 2.0 * (cell + gap) + 16.0 + end
 }
 
 /// The main toolbar pill: the tool groups with their flyouts, Resources and Actions, then the
-/// Draw · Design · Prototype · Inspect mode switcher.
-fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
+/// Draw · Design · Prototype · Inspect mode switcher (on a board, the Design panel's button).
+fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens, board: bool) {
     let (cell, gap) = (32.0, 4.0);
-    let width = main_width();
+    let groups = if board { BOARD_GROUPS } else { GROUPS };
+    let width = main_width(groups, board);
     let rect = pill(ui, &mut app.ui.nav, canvas, width, t);
     let current = app.session.tool.tool;
     let mut x = rect.min.x + 8.0;
     let cy = rect.center().y;
-    for g in GROUPS {
+    for g in groups {
         let in_group = g.tools.iter().any(|(tid, _)| *tid == current);
         let shown = if in_group { current } else { remembered(ui, g.key, g.tools.first().map(|x| x.0).unwrap_or(ToolId::Move)) };
         let icon = g.tools.iter().find(|(tid, _)| *tid == shown).map(|(_, i)| *i).unwrap_or(Icon::Move);
@@ -124,7 +165,7 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         }
         x += cell;
         // Flyout chevron.
-        if g.tools.len() > 1 {
+        if g.has_flyout() {
             let cr = Rect::from_center_size(pos2(x + 5.0, cy), vec2(10.0, cell));
             let cresp = ui.interact(cr, ui.id().with(("flyout", g.key)), Sense::click());
             let open = app.ui.tool_flyout == Some(g.key);
@@ -143,7 +184,11 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         }
         x += gap;
         if app.ui.tool_flyout == Some(g.key) {
-            flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
+            if g.options == Options::None {
+                flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
+            } else {
+                options_flyout(app, ui, g, pos2(r.min.x, rect.min.y - 8.0));
+            }
         }
     }
     // Resources (components, plugins) opens the Assets panel; Actions palette.
@@ -175,6 +220,16 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     }
     divider(ui, t, x, cy);
     x += 8.0;
+    if board {
+        // Boards have no prototypes or Dev Mode; the Design panel is hidden until asked for.
+        let r = Rect::from_center_size(pos2(x + cell / 2.0, cy), vec2(cell, cell));
+        let open = app.ui.board_panel;
+        if tool_cell(ui, t, r, "board_panel", Icon::Panels, open, crate::shortcuts::tip(tr("Design panel"), "view.design")).clicked() {
+            app.run("view.design", json!({}));
+        }
+        help_button(app, ui, canvas, t);
+        return;
+    }
     // Mode switcher: Draw · Design · Prototype · Inspect (code).
     let modes = [(Icon::Pencil, tr("Draw")), (Icon::Frame, tr("Design")), (Icon::Prototype, tr("Prototype")), (Icon::Code, tr("Inspect"))];
     let active = match app.ui.right_tab {
@@ -213,7 +268,11 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
             }
         }
     }
-    // Floating help button at the bottom right of the canvas.
+    help_button(app, ui, canvas, t);
+}
+
+/// The floating help button at the bottom right of the canvas.
+fn help_button(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
     let hr = Rect::from_center_size(pos2(canvas.max.x - 32.0, canvas.max.y - 32.0), vec2(32.0, 32.0));
     let hresp = ui.interact(hr, ui.id().with("help"), Sense::click()).tip(tr("Help and resources"));
     ui.painter().circle_filled(hr.center() + vec2(0.0, 1.0), 17.0, Color32::from_black_alpha(20));
@@ -380,7 +439,7 @@ fn pill(ui: &Ui, nav: &mut Nav, canvas: Rect, width: f32, t: &Tokens) -> Rect {
 }
 
 /// A square tool button: accent when active, tinted on hover; `tip` is its tooltip and name.
-fn tool_cell(ui: &mut Ui, t: &Tokens, r: Rect, id: impl egui::AsIdSalt, icon: Icon, active: bool, tip: &str) -> egui::Response {
+pub(crate) fn tool_cell(ui: &mut Ui, t: &Tokens, r: Rect, id: impl egui::AsIdSalt, icon: Icon, active: bool, tip: &str) -> egui::Response {
     let resp = ui.interact(r, ui.id().with(id), Sense::click()).on_hover_ui(|ui| {
         ui.label(tip);
     });
@@ -412,6 +471,41 @@ fn done_button(ui: &mut Ui, t: &Tokens, x: f32, cy: f32, tip: &str) -> bool {
     ui.painter().rect_filled(done, CornerRadius::same(6), if resp.hovered() { t.accent_hover } else { t.accent });
     ui.painter().text(done.center(), Align2::CENTER_CENTER, tr("Done"), crate::theme::semibold(11.5), t.accent_on);
     resp.clicked()
+}
+
+/// A board tool's flyout: the colours, shapes or stamps it places, in a row. A pick chooses the
+/// tool with it.
+fn options_flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, bottom_left: egui::Pos2) {
+    let t = Tokens::get(ui.ctx());
+    let Some(&(tool, _)) = g.tools.first() else { return };
+    let items = crate::board_bar::choices(g.options, &app.session.tool.board);
+    let (cell, pad) = (32.0, 8.0);
+    let size = vec2(items.len() as f32 * (cell + 4.0) - 4.0 + 2.0 * pad, cell + 2.0 * pad);
+    let mut chosen = None;
+    egui::Area::new(flyout_id(g.key)).fixed_pos(pos2(bottom_left.x, bottom_left.y - size.y)).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        ui.painter().rect_filled(rect, CornerRadius::same(13), t.menu);
+        for (i, c) in items.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(rect.min.x + pad + i as f32 * (cell + 4.0), rect.min.y + pad), vec2(cell, cell));
+            let resp = ui.interact(r, ui.id().with(("opt", g.key, i)), Sense::click()).on_hover_text(tr(c.label));
+            a11y::menu_item(&resp, tr(c.label), "", Some(c.on));
+            a11y::own_focus(&resp);
+            if c.on || resp.hovered() || resp.has_focus() {
+                ui.painter().rect_filled(r, CornerRadius::same(5), t.menu_hover);
+            }
+            crate::board_bar::paint_choice(ui.painter(), r.shrink(5.0), &c.mark, t.menu_text);
+            if resp.clicked() {
+                chosen = Some(c.params.clone());
+            }
+        }
+    });
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        app.ui.tool_flyout = None;
+    }
+    if let Some(params) = chosen {
+        app.run(&format!("tool.{}", tool.id()), params);
+        app.ui.tool_flyout = None;
+    }
 }
 
 fn flyout(app: &mut FigApp, ui: &mut Ui, g: &Group, bottom_left: egui::Pos2) {
