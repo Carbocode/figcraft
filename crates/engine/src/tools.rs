@@ -950,6 +950,13 @@ impl Session {
         }
     }
 
+    /// Drop the gesture under way (a drag, a resize, a shape being drawn), restoring the document
+    /// as Escape does; the UI calls it when Dev Mode starts, where nothing may move.
+    pub fn drop_gesture(&mut self) -> Result<()> {
+        self.tool.gesture = Gesture::None;
+        self.cancel_interaction()
+    }
+
     /// Feed one pointer event to the current tool.
     pub fn pointer(&mut self, ev: &PointerEvent) -> Result<()> {
         // A held button sends the same move every frame: running the gesture again would only

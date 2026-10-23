@@ -944,6 +944,7 @@ impl FigApp {
     fn sync_dev_mode(&mut self) {
         let dev = self.ui.right_tab == RightTab::Inspect;
         if dev && !self.session.tool.dev_mode {
+            let _ = self.session.drop_gesture();
             let editing = self.session.ds().map(|d| (d.text_edit.is_some(), d.vector_edit.is_some())).unwrap_or_default();
             for (on, cmd) in [(editing.0, "text.edit.end"), (editing.1, "vector.edit.end")] {
                 if on {
