@@ -85,3 +85,26 @@ fn read_only_plugins_run_from_the_inspect_tab_show_their_panel() {
     assert!(u.app.session.execute("plugin.event", &json!({"id": "org.test.inspect", "control": "go"})).is_err());
     assert_eq!(layers(&u), before);
 }
+
+/// A clipboard holding only text.
+struct TextClip(String);
+
+impl crate::Services for TextClip {
+    fn clipboard_get_text(&mut self) -> Option<String> {
+        Some(self.0.clone())
+    }
+}
+
+#[test]
+fn dev_mode_pastes_only_a_comments_link() {
+    let mut s = Session::new();
+    let c = s.execute("comment.add", &json!({"x": 10, "y": 10, "text": "Check the spacing"})).unwrap()["id"].as_u64().unwrap();
+    let layers = |app: &crate::FigApp| app.session.doc().unwrap().node(app.session.page().unwrap()).unwrap().children.len();
+    let mut app = crate::FigApp::new(s, Box::new(TextClip("Pasted words".into())));
+    app.ui.right_tab = crate::RightTab::Inspect;
+    crate::menus::paste(&mut app, None, None);
+    assert_eq!(layers(&app), 0, "text doesn't paste into the design in Dev Mode");
+    app.services = Box::new(TextClip(format!("figcraft://comment/{c}")));
+    crate::menus::paste(&mut app, None, None);
+    assert_eq!(app.ui.comments.open, Some(c), "the link opens its thread");
+}

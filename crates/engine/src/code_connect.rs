@@ -166,7 +166,8 @@ fn call_imports(doc: &Document, id: NodeId, lang: CodeLang, depth: usize, out: &
             && v.as_bool() == Some(true)
             && let Some((slot, _)) = slots.iter().find(|(_, name)| *name == p.prop)
         {
-            tree(&Ctx::new(doc, *slot), *slot, lang, depth + 1, out);
+            // The same depth base as the slot's generated content, so its connected children count.
+            tree(&Ctx { doc, root: *slot, comp: None, base: depth }, *slot, lang, depth + 1, out);
         }
     }
 }

@@ -1228,8 +1228,11 @@ impl Session {
                     vec![target]
                 };
                 self.set_selection(new_sel.clone());
-                // Dev Mode only selects: nothing moves.
+                // Dev Mode only selects (Shift-click still deselects): nothing moves.
                 if !edits {
+                    if deselect.is_some() {
+                        self.set_selection(without_target());
+                    }
                     return Ok(());
                 }
                 // Locked layers selected in the layers panel stay put.

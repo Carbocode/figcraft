@@ -115,7 +115,8 @@ fn main_toolbar(app: &mut FigApp, ui: &mut Ui, canvas: Rect, t: &Tokens) {
         if resp.clicked() {
             // Enter (a keyboard click) on the shape or frame tool already chosen places one; the
             // canvas takes the keyboard.
-            if in_group && shown.draws_shape() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // In Dev Mode the tool goes through `choose`, which returns to the design first.
+            if in_group && shown.draws_shape() && app.ui.right_tab != crate::RightTab::Inspect && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 app.run("tool.place", json!({}));
                 app.ui.nav.go(Region::Canvas);
             } else {

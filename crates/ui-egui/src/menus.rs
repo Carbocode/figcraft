@@ -35,12 +35,13 @@ pub const UI_COMMANDS: &[&str] = &[
 /// `event_text` is the text the platform handed over with the paste event (the browser has no
 /// other way to read it). `at`: the page point to paste at (Paste here); `None` pastes in the
 /// middle of the view.
+/// In Dev Mode only a comment's link pastes (it opens the thread); everything else would edit.
 pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>) {
-    if dev_mode_refuses(app, "edit.paste") {
-        return;
-    }
     // Only HTML that holds readable design data takes this path; other HTML pastes as before.
     if let Some(html) = app.services.clipboard_get_html().filter(|h| figcraft_engine::cmd::edit::design_clipboard_buffer(h).is_some()) {
+        if dev_mode_refuses(app, "edit.paste") {
+            return;
+        }
         let mut params = json!({"html": html});
         if let Some((x, y)) = at {
             params["x"] = json!(x);
@@ -61,6 +62,9 @@ pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>)
     let (cx, cy) = at.or_else(|| app.session.ds().ok().map(|d| (d.view.cx, d.view.cy))).unwrap_or((0.0, 0.0));
     if !ours {
         if let Some((png, w, h)) = clipboard_png(app) {
+            if dev_mode_refuses(app, "edit.paste") {
+                return;
+            }
             use base64::Engine as _;
             let b64 = base64::engine::general_purpose::STANDARD.encode(png);
             // Centred in the view; Paste here puts its top-left at the point, as it does layers.
@@ -73,6 +77,8 @@ pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>)
             // A comment's link opens its thread.
             if text.trim().starts_with("figcraft://comment/") {
                 app.run("comment.open", json!({"link": text.trim()}));
+            } else if dev_mode_refuses(app, "edit.paste") {
+                // Dev Mode: the note says why nothing was pasted.
             } else if figcraft_engine::looks_like_svg(&text) {
                 use base64::Engine as _;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
@@ -83,7 +89,9 @@ pub fn paste(app: &mut FigApp, event_text: Option<&str>, at: Option<(f64, f64)>)
             return;
         }
     }
-    app.run("edit.paste", at.map_or(json!({}), |(x, y)| json!({"x": x, "y": y})));
+    if !dev_mode_refuses(app, "edit.paste") {
+        app.run("edit.paste", at.map_or(json!({}), |(x, y)| json!({"x": x, "y": y})));
+    }
 }
 
 /// The system clipboard's image as PNG bytes, with its size.
