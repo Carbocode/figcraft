@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::FigApp;
 use crate::a11y;
-use crate::i18n::tr;
+use crate::i18n::{tr, tr_noop};
 use crate::icons::{self, Icon};
 use crate::theme::{Tokens, semibold};
 use crate::toolbar::Options;
@@ -51,14 +51,14 @@ pub(crate) fn choices(options: Options, board: &BoardTool) -> Vec<Choice> {
 /// A board colour's name as the UI says it.
 fn color_label(name: &str) -> &'static str {
     match name {
-        "yellow" => "Yellow",
-        "orange" => "Orange",
-        "red" => "Red",
-        "pink" => "Pink",
-        "violet" => "Violet",
-        "blue" => "Blue",
-        "green" => "Green",
-        _ => "Gray",
+        "yellow" => tr_noop("Yellow"),
+        "orange" => tr_noop("Orange"),
+        "red" => tr_noop("Red"),
+        "pink" => tr_noop("Pink"),
+        "violet" => tr_noop("Violet"),
+        "blue" => tr_noop("Blue"),
+        "green" => tr_noop("Green"),
+        _ => tr_noop("Gray"),
     }
 }
 

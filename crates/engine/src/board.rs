@@ -226,9 +226,11 @@ fn line_shade(c: Color) -> Color {
     if palette { Color::new(c.r * 0.55, c.g * 0.55, c.b * 0.55, c.a) } else { c }
 }
 
-/// Your name on what you make: the name from Preferences (none for the default).
+/// Your name on what you make: the name from Preferences, else the one a live session gave you
+/// (none for the default name outside a session).
 fn author(s: &Session) -> String {
-    crate::live::display_name(&s.prefs)
+    let name = crate::live::display_name(&s.prefs);
+    if name.is_empty() { s.live().info.as_ref().map(|i| i.name.clone()).unwrap_or_default() } else { name }
 }
 
 /// The parent a command places into, and that parent's page-to-local transform.
