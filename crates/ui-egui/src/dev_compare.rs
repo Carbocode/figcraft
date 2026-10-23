@@ -197,25 +197,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
             ui.horizontal_top(|ui| {
                 let images_w = size.x - LIST_W - 1.0;
                 let (r, _) = ui.allocate_exact_size(vec2(images_w, body_h), Sense::hover());
-                if !cache.cmp.snapshot {
-                    let msg = if view.version.is_some() {
-                        tr("This version can't be read.")
-                    } else if cache.cmp.changed {
-                        tr(
-                            "What this changed from isn't known: it changed before FigCraft kept a copy of ready-for-dev frames. Resolve the change (or mark it ready again) to compare from now on.",
-                        )
-                    } else {
-                        tr("Nothing changed since this was marked ready for dev.")
-                    };
-                    message(ui, &t, r, msg);
-                } else if !cache.cmp.changed && view.version.is_some() {
-                    message(ui, &t, r, tr("Nothing changed since this version."));
-                } else if let (Some(before), Some(after)) = (&cache.before, &cache.after) {
-                    let before_label = version_name.as_deref().unwrap_or(tr("Before"));
-                    images(ui, &t, r, [(before, before_label), (after, tr("Now"))], view.mode, &mut view.split, view.hovered);
-                } else if view.version.is_some() {
-                    message(ui, &t, r, tr("This version doesn't have it: all of it is new."));
-                }
+                compared(ui, r, cache, version_name.as_deref(), view.mode, &mut view.split, view.hovered);
                 let (line, _) = ui.allocate_exact_size(vec2(1.0, body_h), Sense::hover());
                 ui.painter().rect_filled(line, CornerRadius::ZERO, t.border);
                 ui.allocate_ui_with_layout(vec2(LIST_W, body_h), top_down, |ui| {
@@ -244,6 +226,31 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     }
     if open {
         app.ui.dev.compare = Some(view);
+    }
+}
+
+/// The images area: before and after, or a note saying why there is nothing to show.
+/// `version_name`: the saved version compared with (`None`: the ready-for-dev snapshot).
+fn compared(ui: &mut Ui, r: Rect, cache: &Cached, version_name: Option<&str>, mode: Mode, split: &mut f32, hovered: Option<NodeId>) {
+    let t = &Tokens::get(ui.ctx());
+    let against = version_name.is_some();
+    if !cache.cmp.snapshot {
+        let msg = if against {
+            tr("This version can't be read.")
+        } else if cache.cmp.changed {
+            tr(
+                "What this changed from isn't known: it changed before FigCraft kept a copy of ready-for-dev frames. Resolve the change (or mark it ready again) to compare from now on.",
+            )
+        } else {
+            tr("Nothing changed since this was marked ready for dev.")
+        };
+        message(ui, t, r, msg);
+    } else if !cache.cmp.changed && against {
+        message(ui, t, r, tr("Nothing changed since this version."));
+    } else if let (Some(before), Some(after)) = (&cache.before, &cache.after) {
+        images(ui, t, r, [(before, version_name.unwrap_or(tr("Before"))), (after, tr("Now"))], mode, split, hovered);
+    } else if against {
+        message(ui, t, r, tr("This version doesn't have it: all of it is new."));
     }
 }
 

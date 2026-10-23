@@ -939,6 +939,21 @@ impl FigApp {
         }
     }
 
+    /// Dev Mode (the Inspect tab): the canvas measures on hover without Alt and edits nothing;
+    /// entering it ends editing text or vectors.
+    fn sync_dev_mode(&mut self) {
+        let dev = self.ui.right_tab == RightTab::Inspect;
+        if dev && !self.session.tool.dev_mode {
+            let editing = self.session.ds().map(|d| (d.text_edit.is_some(), d.vector_edit.is_some())).unwrap_or_default();
+            for (on, cmd) in [(editing.0, "text.edit.end"), (editing.1, "vector.edit.end")] {
+                if on {
+                    self.run(cmd, json!({}));
+                }
+            }
+        }
+        self.session.tool.dev_mode = dev;
+    }
+
     /// Leaving Design ends a pen path as Escape does and goes back to Move: Prototype and Inspect
     /// don't draw (#307). Checked as the frame starts (the control channel) and after the panels
     /// and shortcuts (the mode switcher, the tabs, Shift+E/Shift+D), before the canvas sees more.
@@ -1577,18 +1592,7 @@ impl FigApp {
         }
         theme::set_doc_profile(&ctx, self.session.doc().map_or(figcraft_color::ColorProfile::Srgb, |d| d.color_profile));
         widgets::set_nudge(&ctx, self.session.prefs.nudge_small, self.session.prefs.nudge_big);
-        // Dev Mode (the Inspect tab): the canvas measures on hover without Alt and edits nothing;
-        // entering it ends editing text or vectors.
-        let dev = self.ui.right_tab == RightTab::Inspect;
-        if dev && !self.session.tool.dev_mode {
-            let editing = self.session.ds().map(|d| (d.text_edit.is_some(), d.vector_edit.is_some())).unwrap_or_default();
-            for (on, cmd) in [(editing.0, "text.edit.end"), (editing.1, "vector.edit.end")] {
-                if on {
-                    self.run(cmd, json!({}));
-                }
-            }
-        }
-        self.session.tool.dev_mode = dev;
+        self.sync_dev_mode();
         self.end_pen_outside_design();
         tabs::tab_bar(self, ui);
         if self.ui.present.is_some() {
