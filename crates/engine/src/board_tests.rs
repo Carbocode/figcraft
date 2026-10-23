@@ -330,3 +330,32 @@ fn a_press_on_a_stickys_background_picks_and_drags_it() {
     assert_eq!(node(&s, a).transform.translation().y, 300.0);
     assert!(near(drawn(&s, c)[0], Point::new(200.0, 400.0)), "the connector followed the drag: {:?}", drawn(&s, c));
 }
+
+#[test]
+fn a_copy_of_joined_objects_joins_the_copies() {
+    let mut s = board();
+    let a = id(&s.execute("board.sticky", &json!({"x": 0, "y": 0})).unwrap(), "id");
+    let b = id(&s.execute("board.sticky", &json!({"x": 400, "y": 0})).unwrap(), "id");
+    let c = id(&s.execute("board.connector", &json!({"from": a, "to": b, "label": "x"})).unwrap(), "id");
+    let label = crate::board::label_of(s.doc().unwrap(), c).unwrap();
+    s.execute("edit.duplicate", &json!({"ids": [a, b, c, label]})).unwrap();
+    let copies = s.selection();
+    assert_eq!(copies.len(), 4, "{copies:?}");
+    let k = copies.iter().find_map(|i| match node(&s, *i).board {
+        Some(BoardItem::Connector(k)) => Some(k),
+        _ => None,
+    });
+    let k = k.unwrap();
+    assert!(copies.contains(&k.from.node().unwrap()) && copies.contains(&k.to.node().unwrap()), "{k:?} {copies:?}");
+    // Copy and paste too.
+    s.execute("select.set", &json!({"ids": [a, b, c]})).unwrap();
+    s.execute("edit.copy", &json!({})).unwrap();
+    s.execute("edit.paste", &json!({})).unwrap();
+    let pasted = s.selection();
+    let k = pasted.iter().find_map(|i| match node(&s, *i).board {
+        Some(BoardItem::Connector(k)) => Some(k),
+        _ => None,
+    });
+    let k = k.unwrap();
+    assert!(pasted.contains(&k.from.node().unwrap()) && pasted.contains(&k.to.node().unwrap()), "{k:?} {pasted:?}");
+}

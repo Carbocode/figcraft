@@ -494,6 +494,8 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
         }
         out.push(nid);
     }
+    // Board connectors copied with what they join join the copies.
+    crate::board::rejoin(doc, &out, &ids.iter().copied().zip(out.iter().copied()).collect());
     s.set_selection(out.clone());
     s.ds_mut()?.last_duplicate = Some(Duplicated { sources: ids, copies: out.clone() });
     Ok(json!({"ids": out}))
@@ -675,6 +677,8 @@ pub fn paste_into(s: &mut Session, parent: NodeId, at: Option<(f64, f64)>) -> Re
         out.push(doc.paste_nodes(&nodes, &map, *root, into, None)?);
         all.extend(map);
     }
+    // Board connectors pasted with what they join join the pasted copies.
+    crate::board::rejoin(doc, &out, &all);
     if let Some(src) = foreign {
         crate::library::adopt_pasted(doc, src, clip.source_path.as_deref(), &all)?;
     }

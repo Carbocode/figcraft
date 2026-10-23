@@ -79,6 +79,28 @@ impl BoardItem {
         }
     }
 
+    /// Point the layers this object refers to (a connector's ends, a label's connector) at their
+    /// copies in `map`; the others stay.
+    pub fn remap(&mut self, map: &std::collections::BTreeMap<NodeId, NodeId>) {
+        match self {
+            BoardItem::Connector(c) => {
+                for end in [&mut c.from, &mut c.to] {
+                    if let End::Node { node, .. } = end
+                        && let Some(m) = map.get(node)
+                    {
+                        *node = *m;
+                    }
+                }
+            }
+            BoardItem::Label { connector } => {
+                if let Some(m) = map.get(connector) {
+                    *connector = *m;
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn kind_id(&self) -> &'static str {
         match self {
             BoardItem::Sticky { .. } => "sticky",

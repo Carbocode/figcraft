@@ -841,6 +841,10 @@ impl Document {
             {
                 *component = *m;
             }
+            // A connector (or label) copied with what it joins joins the copies.
+            if let Some(b) = c.board.as_mut() {
+                b.remap(map);
+            }
             // A pattern tiling a layer of the copy tiles the copy's layer.
             for p in c.fills.iter_mut().chain(c.strokes.iter_mut()) {
                 if let figcraft_color::PaintKind::Pattern(pt) = &mut p.kind

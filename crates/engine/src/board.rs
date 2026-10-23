@@ -778,6 +778,18 @@ fn set_font_size(td: &mut TextData, size: f64) {
     }
 }
 
+/// After layers were copied one by one (`map`: each original's copy), the copied connectors and
+/// labels among `copies` refer to the copies of what they referred to.
+pub(crate) fn rejoin(doc: &mut Document, copies: &[NodeId], map: &std::collections::BTreeMap<NodeId, NodeId>) {
+    for id in copies {
+        if doc.node(*id).is_some_and(|n| matches!(n.board, Some(BoardItem::Connector(_) | BoardItem::Label { .. })))
+            && let Some(b) = doc.node_mut(*id).and_then(|n| n.board.as_mut())
+        {
+            b.remap(map);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Derived data (the normalize pass).
 
