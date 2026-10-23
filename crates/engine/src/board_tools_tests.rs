@@ -250,13 +250,17 @@ fn a_second_sticky_ends_the_first_ones_typing_and_undoes_alone() {
     s.prefs.keep_tool = true;
     s.pointer(&PointerEvent::at(PointerKind::Down, 100.0, 100.0, 1.0)).unwrap();
     s.pointer(&PointerEvent::at(PointerKind::Up, 100.0, 100.0, 1.0)).unwrap();
+    let text = s.ds().unwrap().text_edit.as_ref().expect("typing in the new sticky").id;
+    crate::textedit::insert(&mut s, "first note").unwrap();
     s.pointer(&PointerEvent::at(PointerKind::Down, 500.0, 100.0, 1.0)).unwrap();
     s.pointer(&PointerEvent::at(PointerKind::Up, 500.0, 100.0, 1.0)).unwrap();
     let stickies = |s: &Session| s.doc().unwrap().nodes().filter(|n| matches!(n.board, Some(BoardItem::Sticky { .. }))).count();
+    let typed = |s: &Session| s.doc().unwrap().node(text).unwrap().kind.text().unwrap().characters.clone();
     assert_eq!(stickies(&s), 2);
     crate::textedit::end(&mut s).unwrap();
     s.undo().unwrap();
     assert_eq!(stickies(&s), 1, "the second sticky is its own undo step");
+    assert_eq!(typed(&s), "first note", "the first sticky keeps what was typed in it");
 }
 
 #[test]
