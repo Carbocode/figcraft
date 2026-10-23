@@ -8,6 +8,7 @@
 //! live in higher crates.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod board;
 pub mod colors;
 pub mod comments;
 pub mod geometry;
@@ -23,6 +24,7 @@ pub mod vector;
 pub mod vector_faces;
 pub mod vector_regions;
 
+pub use board::*;
 pub use colors::*;
 pub use comments::*;
 pub use figcraft_color as color;
@@ -157,6 +159,9 @@ pub struct ImageData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Document {
     pub name: String,
+    /// A design file or a board (files from before boards are design files).
+    #[serde(default, skip_serializing_if = "FileKind::is_design")]
+    pub kind: FileKind,
     /// Page ids in order.
     pub pages: Vec<NodeId>,
     nodes: imbl::OrdMap<NodeId, Arc<Node>>,
@@ -221,6 +226,7 @@ impl Document {
     pub fn without_pages(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            kind: FileKind::Design,
             pages: Vec::new(),
             nodes: imbl::OrdMap::new(),
             dirty: Dirty::default(),

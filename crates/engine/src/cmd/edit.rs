@@ -691,7 +691,10 @@ fn paste(s: &mut Session, p: &Value) -> Result<Value> {
     let target = id(p, "parent").or_else(|| {
         sel.first()
             .copied()
-            .filter(|i| sel.len() == 1 && doc.node(*i).is_some_and(|n| n.kind.is_frame_like() && !matches!(n.kind, NodeKind::Instance { .. })))
+            .filter(|i| {
+                sel.len() == 1
+                    && doc.node(*i).is_some_and(|n| n.kind.is_frame_like() && !matches!(n.kind, NodeKind::Instance { .. }) && !n.is_board_atom())
+            })
             .filter(|i| !copy_local || !s.clipboard.copied_components.iter().any(|root| doc.is_ancestor(*root, *i)))
     });
     let parent = target.unwrap_or(page);
