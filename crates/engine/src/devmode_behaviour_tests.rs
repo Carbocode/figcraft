@@ -123,6 +123,7 @@ fn dev_mode_runs_its_own_edits_and_refuses_design_edits_from_menus_and_shortcuts
         "tool.text",
         "tool.place",
         "file.import",
+        "file.revert",
     ] {
         assert!(!dev_mode_allows(id), "{id} edits the design");
     }
