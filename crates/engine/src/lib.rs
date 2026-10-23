@@ -1662,6 +1662,10 @@ mod devfocus_tests;
 #[cfg(test)]
 mod devinspect_tests;
 #[cfg(test)]
+mod devmode_behaviour_tests;
+#[cfg(test)]
+mod devmode_tail_tests;
+#[cfg(test)]
 mod doc_urls_tests;
 #[cfg(test)]
 mod double_click_tests;
