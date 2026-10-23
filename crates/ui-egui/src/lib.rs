@@ -100,6 +100,7 @@ mod design_paste_tests;
 mod dev_mode_tests;
 #[cfg(test)]
 mod devmode_tail_tests;
+#[cfg(test)]
 mod duplicate_paint_tests;
 #[cfg(test)]
 mod export_preview_tests;
