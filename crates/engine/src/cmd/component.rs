@@ -802,7 +802,7 @@ fn restore_prop_defs(doc: &Document, props: &BTreeMap<String, Value>) -> BTreeMa
     defs
 }
 
-fn restore_id_map(doc: &Document, i: NodeId, component: NodeId, sub: &[NodeId]) -> BTreeMap<NodeId, NodeId> {
+fn restore_id_map(doc: &mut Document, i: NodeId, component: NodeId, sub: &[NodeId]) -> BTreeMap<NodeId, NodeId> {
     let mut map: BTreeMap<NodeId, NodeId> = BTreeMap::new();
     let mut used: BTreeSet<NodeId> = BTreeSet::new();
     map.insert(i, component);
