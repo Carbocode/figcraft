@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~26 points and ~162–292 h away (one Opus 5.5 agent; ~33–67 h wall-clock with 5 agents)
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-24 · **Change:** minor (boards: a board area row and progress entry; `fill`/`stroke` props accept `"none"` and `null` as no paint (#1036); community fixes in #507, #510, #529 and #530: auto-save, a text box by dragging, batch step references, removing someone from a live session, Russian and Turkish catalogs reviewed, Czech and Indonesian drafts, the Japanese draft completed, zoom previews, the web clipboard, Alt-drag snapping and Cmd+D repeat, recovery copies, crash and rollback fixes, colour emoji, `.fig` import fixes; earlier changes are in the revision history below) · **Target:** Figma Design (desktop app 126.10.7)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-24 · **Change:** minor (boards: templates and tables; a board area row and progress entry; `fill`/`stroke` props accept `"none"` and `null` as no paint (#1036); community fixes in #507, #510, #529 and #530: auto-save, a text box by dragging, batch step references, removing someone from a live session, Russian and Turkish catalogs reviewed, Czech and Indonesian drafts, the Japanese draft completed, zoom previews, the web clipboard, Alt-drag snapping and Cmd+D repeat, recovery copies, crash and rollback fixes, colour emoji, `.fig` import fixes; earlier changes are in the revision history below) · **Target:** Figma Design (desktop app 126.10.7)
 
 FigCraft is a clean-room, open-source, pure-Rust reimplementation of the Figma design workflow,
 native on macOS, Windows, Linux and FreeBSD and in the browser, fully drivable by agents through
@@ -93,7 +93,7 @@ native speakers' reviews of the nine language drafts need people.
 | Team libraries | 70% | 40% | 4–8 | [components-parity](docs/components-parity.md) |
 | Figma Draw extras | 88% | 60% | 1–3 | [gaps](docs/gaps.md) |
 | AI features | 0% | 0% | 30–60 | [gaps](docs/gaps.md) |
-| Boards (whiteboarding; not in the weighted numbers) | ~35% | ~20% | 30–60 | [boards-parity](docs/boards-parity.md) |
+| Boards (whiteboarding; not in the weighted numbers) | ~40% | ~24% | 26–54 | [boards-parity](docs/boards-parity.md) |
 
 ## Languages
 
@@ -132,6 +132,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Progress log
 
+- **2026-10-24** · Board templates and tables (M12): a templates picker in the board toolbar places a retrospective, a brainstorm, a weekly planner, a flow chart or a kanban board (`board.template`, all FigCraft's own) as ordinary board objects in one undo step; `board.table` makes a table of auto layout frames (up to 50 × 20) whose rows grow with their text, edited by row and column from the bar over the selection or `board.tableEdit`, typed into with a double-click. Boards ~35% → ~40% breadth, 30–60 h → 26–54 h; the weighted numbers are unchanged.
 - **2026-10-24** · Boards (M12): File ▸ New board makes a board, a file kind of its own saved in `.figcraft` and carried to people joining a live session. Sticky notes (8 colours, text that shrinks as the note grows, the author's name, Shift+Cmd/Ctrl+Enter for the next one), shapes with text (7 outlines), connectors that re-route when what they join moves (computed in the engine's normalize pass, so local edits, undo and others' edits agree), marker, highlighter and eraser, stamps with the placer's name on hover; a board toolbar, a contextual bar over the selection and the Design panel hidden until asked for; prototyping and Dev Mode refuse on boards. Design files and boards have their own marks (a pen nib, a note) on tabs, the home screen and the Open files list. Checked in the app, with two app instances in one live session, and through MCP; the web build compiles ([boards-parity](docs/boards-parity.md)).
 - **2026-10-15** · Auto-save (M1, #305): Preferences ▸ Save files automatically (`pref.autoSave`, off by default, desktop only) saves each open file that has a path 3 s after its last change, never during a gesture, a live text preview or while a version is shown; the file is encoded off the UI thread, a failed save says why and is tried again a minute later. Numbers unchanged.
 - **2026-10-15** · A text box by dragging (M1, #363): a drag with the Text tool makes a fixed-size text box the size of the drag; a click still makes auto-width text. Numbers unchanged.
@@ -328,6 +329,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-24 | minor | Board templates and tables (M12): five built-in templates (`board.template`, `board.templates`, a toolbar picker with pictures) and tables (`board.table`, `board.tableEdit`; rows and columns from the bar over the selection). Boards row ~35%/~20% → ~40%/~24%, 30–60 h → 26–54 h; headline numbers unchanged (boards are outside the weighted sum) |
 | 2026-10-24 | minor | Boards (M12): a file kind of its own (`file.newBoard`, saved in `.figcraft`, carried to live-session joiners) with sticky notes, shapes with text, connectors that re-route when what they join moves (an engine recompute, the same for local edits, undo and others' edits), marker, highlighter and eraser, stamps with the placer's name, a board toolbar and a contextual bar; prototyping and Dev Mode refuse on boards; design files and boards have their own marks on tabs and file rows. Boards row added outside the weighted numbers; headline numbers unchanged at this rounding |
 | 2026-10-15 | minor | Auto-save (#305, #296): Preferences ▸ Save files automatically (`pref.autoSave`, off by default; desktop only, the browser has no files to save to) saves each open file that has a path 3 s after its last change, so steady editing doesn't save every few seconds, and never during a gesture, a live text preview or while a version is shown. The file is encoded on a thread of its own and written as of that moment (edits made meanwhile stay unsaved); a failed save says why in a toast and is tried again a minute later, and version history checkpoints keep coming with it on. Numbers unchanged |
 | 2026-10-15 | minor | A text box by dragging (#363, #360): a drag with the Text tool makes a fixed-size text box the size of the drag (at least one line tall); a click, or a drag shorter than the drag threshold, still makes auto-width text. Numbers unchanged |

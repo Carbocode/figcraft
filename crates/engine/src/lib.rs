@@ -14,6 +14,8 @@ pub mod annotations;
 pub mod arc_handles;
 pub mod background;
 pub mod board;
+pub mod board_table;
+pub mod board_templates;
 pub mod booleans;
 pub mod branches;
 pub mod catalog;
@@ -1614,6 +1616,8 @@ mod batch_rollback_tests;
 mod batch_step_ref_tests;
 #[cfg(test)]
 mod binding_lists_tests;
+#[cfg(test)]
+mod board_tables_tests;
 #[cfg(test)]
 mod board_tests;
 #[cfg(test)]

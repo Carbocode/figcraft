@@ -1,12 +1,12 @@
 # Boards parity
 
-> **Last reviewed:** 2026-10-24 · **Last updated:** 2026-10-24 · **Change:** major (created: board files, the first slice of the whiteboard workflow) · **Target:** the incumbent's whiteboard product (behaviour from its public help centre)
+> **Last reviewed:** 2026-10-24 · **Last updated:** 2026-10-24 · **Change:** minor (templates and tables) · **Target:** the incumbent's whiteboard product (behaviour from its public help centre)
 
-**Breadth ~35%, ready ~20% (estimated, erring low).** A board is a FigCraft file of its own kind
+**Breadth ~40%, ready ~24% (estimated, erring low).** A board is a FigCraft file of its own kind
 (`file.newBoard`) with sticky notes, shapes with text, connectors that follow what they join,
-marker, highlighter and eraser, stamps, text and sections, edited together in the existing live
-sessions. The facilitation tools (timer, voting, widgets), templates, tables, mind maps and the
-rest of the tail are missing. Remaining: ~30–60 h. Tracked as area 22 of
+marker, highlighter and eraser, stamps, text and sections, five built-in templates and tables,
+edited together in the existing live sessions. The facilitation tools (timer, voting, widgets),
+mind maps and the rest of the tail are missing. Remaining: ~26–54 h. Tracked as area 22 of
 [`target-app-parity.md`](target-app-parity.md) (not in its weighted sum: the target there is the
 design product). The work item is gap 24 in [`gaps.md`](gaps.md).
 
@@ -45,8 +45,8 @@ all end with the same geometry.
 | Timer and music | missing | |
 | Voting sessions | missing | |
 | Board widgets | missing | design-file widgets exist (`crates/engine/src/widgets.rs`), not wired to boards |
-| Templates (retrospective, brainstorm, flow chart…) | missing | |
-| Tables | missing | |
+| Templates (retrospective, brainstorm, flow chart…) | partial | five built-in templates drawn up for FigCraft (retrospective, brainstorm, weekly planner, flow chart, kanban board), placed from the toolbar's templates picker (each with a picture of itself) or `board.template {name, x?, y?}` as ordinary sections, stickies, shapes, connectors and text in one undo step; `board.templates` lists them. No community templates, no saving your own |
+| Tables | partial | `board.table {rows, columns, cells?, x?, y?}` (at most 50 × 20): an auto layout frame of rows of cells with text, a tinted header row and lines between rows and columns; a cell's row grows with its text; a double-click types in the cell under the pointer; add or remove a row or column from the bar over the selection or `board.tableEdit {id, action, index?}`; undoable and synced in live sessions. No column resizing by dragging, no cell colours, no Tab between cells, no CSV paste |
 | Mind maps | missing | |
 | Washi tape, code blocks, image cropping on boards | missing | images can be placed as in design files |
 | Audio and huddles | missing | |
@@ -58,4 +58,5 @@ all end with the same geometry.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-24 | minor | Templates (retrospective, brainstorm, weekly planner, flow chart, kanban board) from a toolbar picker or `board.template`, and tables (`board.table`, `board.tableEdit`): breadth ~35% → ~40%, ready ~20% → ~24%, remaining 30–60 h → 26–54 h |
 | 2026-10-24 | major | Created with board files (M12): sticky notes, shapes with text, connectors, ink and eraser, stamps, the board toolbar and contextual bar, live-session sync |
