@@ -773,7 +773,7 @@ fn get_node(b: &mut dyn Backend, a: &Map<String, Value>) -> Result<ToolResult, S
             "nextOffset": next,
         })),
     );
-    if window && next.is_none() && offset == 0 && used == depth && used_wire + MARKER_RESERVE <= budget {
+    if window && shown == total && offset == 0 && used == depth && used_wire + MARKER_RESERVE <= budget {
         // Nothing was left out after all (an offset of zero that fitted whole).
         out.as_object_mut().map(|o| o.remove("truncated"));
     }

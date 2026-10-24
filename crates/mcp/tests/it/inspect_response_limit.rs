@@ -175,4 +175,11 @@ fn children_too_large_to_fit_page_one_at_a_time() {
         assert!(pages <= 3);
     }
     assert_eq!(pages, 3);
+
+    // A sole child passed over still says the answer was cut.
+    let single = c.create(json!({"type": "frame", "x": 500, "y": 0, "width": 40, "height": 40}));
+    c.create(json!({"type": "rectangle", "parent": single, "x": 0, "y": 0, "width": 20, "height": 20, "name": "n".repeat(3000)}));
+    let (page, _) = get_node(&mut c, json!({"id": single, "depth": 1, "maxBytes": 2500}));
+    assert_eq!(page["children"].as_array().map_or(0, Vec::len), 0);
+    assert_eq!(page["truncated"]["children"]["total"], json!(1), "{}", page["truncated"]);
 }
