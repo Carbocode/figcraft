@@ -124,10 +124,6 @@ pub fn large_document(layers: usize) -> DocResult<(Document, NodeId)> {
             break;
         }
     }
-        if budget(made) == 0 {
-            break;
-        }
-    }
     // Settle derived state (text sizes, group bounds, auto layout) as after opening a file.
     let empty = Document::new("");
     crate::normalize(&mut doc, &empty);
