@@ -754,7 +754,10 @@ fn get_node(b: &mut dyn Backend, a: &Map<String, Value>) -> Result<ToolResult, S
     let total = value.get("children").and_then(Value::as_array).map_or(0, Vec::len);
     let window = children_window(&mut value, offset, budget.saturating_sub(MARKER_RESERVE));
     let shown = value.get("children").and_then(Value::as_array).map_or(0, Vec::len);
-    let next = (offset + shown < total).then_some(offset + shown);
+    // A child too large to fit on its own is passed over (a page of just the marker), so paging
+    // moves on and every answer stays within maxBytes; `get_node` on the child reads it.
+    let after = offset + shown.max(1);
+    let next = (after < total).then_some(after);
     let used_wire = wire_size(&value);
     let mut out = with_marker(
         value,
@@ -792,9 +795,8 @@ fn children_window(value: &mut Value, offset: usize, budget: usize) -> bool {
     if fits(value, rest.len()) {
         return rest.len() != all.len();
     }
-    // The largest window that fits, but at least one child, so paging moves on past a child too
-    // large to fit (the marker then says so).
-    let (mut lo, mut hi) = (usize::from(!rest.is_empty()), rest.len());
+    // The largest window that fits, between none and all of the rest.
+    let (mut lo, mut hi) = (0usize, rest.len());
     while lo < hi {
         let mid = lo + (hi - lo).div_ceil(2);
         if fits(value, mid) { lo = mid } else { hi = mid - 1 }

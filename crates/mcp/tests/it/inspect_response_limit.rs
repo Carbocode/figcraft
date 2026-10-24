@@ -153,8 +153,8 @@ fn get_node(c: &mut Client, args: Value) -> (Value, usize) {
     (serde_json::from_str(text).expect("the block is JSON"), wire)
 }
 
-/// A child too large for the limit on its own is still shown, one per page, so paging moves on,
-/// and the marker says the answer was cut.
+/// A child too large for the limit on its own is passed over, one per page of just the marker,
+/// so paging moves on and every page stays within the limit.
 #[test]
 fn children_too_large_to_fit_page_one_at_a_time() {
     let mut c = Client::new();
@@ -165,8 +165,9 @@ fn children_too_large_to_fit_page_one_at_a_time() {
     let mut offset = Some(0u64);
     let mut pages = 0;
     while let Some(at) = offset {
-        let (page, _) = get_node(&mut c, json!({"id": frame, "depth": 1, "maxBytes": 1024, "offset": at}));
-        assert_eq!(page["children"].as_array().map(Vec::len), Some(1), "{}", page["truncated"]);
+        let (page, wire) = get_node(&mut c, json!({"id": frame, "depth": 1, "maxBytes": 2500, "offset": at}));
+        assert!(wire <= 2500, "page at {at} exceeds maxBytes: {wire}");
+        assert_eq!(page["children"].as_array().map_or(0, Vec::len), 0, "{}", page["truncated"]);
         assert!(!page["truncated"].is_null(), "the marker stays: page at {at}");
         offset = page["truncated"]["children"]["nextOffset"].as_u64();
         assert!(offset.is_none_or(|o| o > at), "paging moves on from {at}");
