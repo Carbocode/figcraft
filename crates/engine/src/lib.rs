@@ -23,6 +23,7 @@ pub mod codegen;
 pub mod collab;
 pub mod component_codegen;
 pub mod components;
+pub mod dev_measurements;
 pub mod dev_resources;
 pub mod devcompare;
 pub mod devinspect;
@@ -414,6 +415,7 @@ impl DocState {
         }
         doc.link_layer_text_styles();
         cmd::styles::apply_paint_bindings_on_load(&mut doc);
+        components::mark_layer_modes(&mut doc);
         // Initial import settlement belongs to the saved baseline, not the user's first edit.
         let page = doc.current_page.filter(|p| doc.pages.contains(p)).or_else(|| doc.first_page()).unwrap_or(NodeId(0));
         let doc = Arc::new(doc);
@@ -1658,6 +1660,8 @@ mod dark_page_text_tests;
 #[cfg(test)]
 mod design_paste_tests;
 #[cfg(test)]
+mod dev_measurements_tests;
+#[cfg(test)]
 mod dev_resources_tests;
 #[cfg(test)]
 mod devcompare_tests;
@@ -1691,6 +1695,8 @@ mod fig_export_assets_tests;
 mod fig_export_tests;
 #[cfg(test)]
 mod fig_import_tests;
+#[cfg(test)]
+mod fill_none_tests;
 #[cfg(test)]
 mod finite_geometry_tests;
 #[cfg(test)]
@@ -1903,6 +1909,8 @@ mod variables_io_tests;
 mod variants_discovery_tests;
 #[cfg(test)]
 mod vector_behaviour_tests;
+#[cfg(test)]
+mod vector_fill_rule_tests;
 #[cfg(test)]
 mod vector_multi_behaviour_tests;
 #[cfg(test)]
