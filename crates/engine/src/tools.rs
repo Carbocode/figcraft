@@ -2019,6 +2019,10 @@ impl Session {
         if matches!(self.tool.tool, ToolId::Move | ToolId::Scale) && self.board_double_click(&doc, leaf, &sel)? {
             return Ok(());
         }
+        // A widget's editable field: edit it like any text (its plugin hears of it when editing ends).
+        if edits && let Some(field) = crate::widgets::field_at(&doc, leaf, ev.p()) {
+            return textedit::begin(self, field, None, false);
+        }
         let target = select_target(&doc, leaf, &sel, true);
         // Text: edit at the click.
         if edits

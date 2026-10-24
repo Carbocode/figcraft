@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 /// The manifest's file name.
 pub const MANIFEST_FILE: &str = "figcraft-plugin.json";
 /// The plugin API version this build implements (`api` in the manifest).
-pub const API_VERSION: u32 = 3;
+pub const API_VERSION: u32 = 4;
 /// Largest manifest read.
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
@@ -43,7 +43,7 @@ pub struct Manifest {
     /// The WebAssembly module, relative to the manifest (`plugin.wasm`).
     pub main: String,
     /// The plugin API version the plugin was written for (1 when not given; panels and settings
-    /// need 2, widgets 3).
+    /// need 2, widgets 3, widget fields and property menus 4).
     #[serde(default = "api_version", deserialize_with = "api_from_number_or_string")]
     pub api: u32,
     #[serde(default)]

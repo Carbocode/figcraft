@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~26 points and ~162–292 h away (one Opus 5.5 agent; ~33–67 h wall-clock with 5 agents)
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-24 · **Change:** minor (boards: a board area row and progress entry; `fill`/`stroke` props accept `"none"` and `null` as no paint (#1036); community fixes in #507, #510, #529 and #530: auto-save, a text box by dragging, batch step references, removing someone from a live session, Russian and Turkish catalogs reviewed, Czech and Indonesian drafts, the Japanese draft completed, zoom previews, the web clipboard, Alt-drag snapping and Cmd+D repeat, recovery copies, crash and rollback fixes, colour emoji, `.fig` import fixes; earlier changes are in the revision history below) · **Target:** Figma Design (desktop app 126.10.7)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-24 · **Change:** minor (plugin widgets take text input and a property menu (plugin API 4); boards: a board area row and progress entry; `fill`/`stroke` props accept `"none"` and `null` as no paint (#1036); community fixes in #507, #510, #529 and #530: auto-save, a text box by dragging, batch step references, removing someone from a live session, Russian and Turkish catalogs reviewed, Czech and Indonesian drafts, the Japanese draft completed, zoom previews, the web clipboard, Alt-drag snapping and Cmd+D repeat, recovery copies, crash and rollback fixes, colour emoji, `.fig` import fixes; earlier changes are in the revision history below) · **Target:** Figma Design (desktop app 126.10.7)
 
 FigCraft is a clean-room, open-source, pure-Rust reimplementation of the Figma design workflow,
 native on macOS, Windows, Linux and FreeBSD and in the browser, fully drivable by agents through
@@ -19,13 +19,13 @@ start with [`docs/gaps.md`](docs/gaps.md).
 | Essentials user | **~59%** | estimated: core features 77.8% × 0.92 launch/stability × 0.94 discoverability × 0.88 opening files people send ([method](docs/target-app-parity.md#essentials-user)) |
 | Mainstream practitioner | **~50%** | estimated: weekly areas 72.7% × 0.9 interaction × 0.9 stability × 0.85 file exchange with Figma users ([method](docs/target-app-parity.md#mainstream-practitioner)) |
 | Remaining to beta | **~155–280 h** one agent | estimated |
-| Remaining to full parity | **~262–519 h** one agent (~83–145 h wall-clock with 5 agents) | estimated |
+| Remaining to full parity | **~260–515 h** one agent (~83–145 h wall-clock with 5 agents) | estimated |
 
 ### Readiness by audience
 
 | Audience | Ready % | Opus 5.5 agent wall-clock hours to ~95% | Work that dominates |
 |---|---|---|---|
-| Full target (ready for real work) | ~53% | ~268–522 h | multiplayer (42–84), localization (29–51), plugins (8–26), the interaction pass (40–60), GPU canvas (30–60), AI (30–60), the `.fig` import's tail (5–10) |
+| Full target (ready for real work) | ~53% | ~266–518 h | multiplayer (42–84), localization (29–51), plugins (6–22), the interaction pass (40–60), GPU canvas (30–60), AI (30–60), the `.fig` import's tail (5–10) |
 | Mainstream practitioner | ~50% | ~120–229 h | core editor depth incl. the `.fig` import's tail (49–98), the interaction pass (40–60), real-file corpus and platform QA (25–50), checking the rest of the experimental `.fig` export elsewhere: effects, images, prototypes, real files (5–15) |
 | Essentials user | ~59% | ~55–100 h | the `.fig` import's tail so the files people send open well (5–10), core tool polish (25–45), interaction pass on the core tools (15–25), stability QA (10–20) |
 
@@ -65,7 +65,7 @@ native speakers' reviews of the nine language drafts need people.
 | Hardware | 60% | 10–21 | [hardware-parity](docs/hardware-parity.md) |
 | Localization | 39% (layer; English; Russian and Turkish reviewed by native speakers; Spanish with a Latin American overlay, French, German, Brazilian Portuguese, Japanese, Korean, Simplified Chinese, Indonesian and Czech drafts; CJK UI fonts) | 29–51 | [localization-parity](docs/localization-parity.md) |
 | Platforms | 75% | 10–20 | [hardware-parity](docs/hardware-parity.md) |
-| Ecosystem / plugins | 38% (own WASM plugins with panels, settings and widgets; a self-hosted plugin directory) | 8–26 | [gaps](docs/gaps.md) |
+| Ecosystem / plugins | 40% (own WASM plugins with panels, settings and widgets that take clicks, text and a property menu; a self-hosted plugin directory) | 6–22 | [gaps](docs/gaps.md) |
 | AI features | 0% | 30–60 | [gaps](docs/gaps.md) |
 
 ## Features
@@ -89,7 +89,7 @@ native speakers' reviews of the nine language drafts need people.
 | Dev Mode / inspect | 97% | 76% | 2–4 | [dev-mode-parity](docs/dev-mode-parity.md) |
 | Comments, versions, misc | 87% | 63% | 1–3 | [collaboration-parity](docs/collaboration-parity.md) |
 | Multiplayer & sharing | 17% | 5% | 42–84 | [collaboration-parity](docs/collaboration-parity.md) |
-| Plugins & widgets | 60% | 35% | 8–26 | [plugins](docs/plugins.md) |
+| Plugins & widgets | 65% | 38% | 6–22 | [plugins](docs/plugins.md) |
 | Team libraries | 70% | 40% | 4–8 | [components-parity](docs/components-parity.md) |
 | Figma Draw extras | 88% | 60% | 1–3 | [gaps](docs/gaps.md) |
 | AI features | 0% | 0% | 30–60 | [gaps](docs/gaps.md) |
@@ -132,6 +132,12 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Progress log
 
+- **2026-10-24** · Plugin widgets take text input and a property menu (M11, gap 6, plugin API 4; older plugins run
+  unchanged): a double-click on a widget's editable field edits it like any text, and when editing ends the value goes
+  into the widget's state and its plugin redraws it, one undo step (`widget.setText` from scripts and MCP); a widget
+  can carry a few actions, toggles and colour choices, shown in a small bar over it while it's selected
+  (`widget.menu`). The Counter example has a label field and a menu (reset, steps of ten, a colour). Plugins & widgets
+  65%.
 - **2026-10-24** · Boards (M12): File ▸ New board makes a board, a file kind of its own saved in `.figcraft` and carried to people joining a live session. Sticky notes (8 colours, text that shrinks as the note grows, the author's name, Shift+Cmd/Ctrl+Enter for the next one), shapes with text (7 outlines), connectors that re-route when what they join moves (computed in the engine's normalize pass, so local edits, undo and others' edits agree), marker, highlighter and eraser, stamps with the placer's name on hover; a board toolbar, a contextual bar over the selection and the Design panel hidden until asked for; prototyping and Dev Mode refuse on boards. Design files and boards have their own marks (a pen nib, a note) on tabs, the home screen and the Open files list. Checked in the app, with two app instances in one live session, and through MCP; the web build compiles ([boards-parity](docs/boards-parity.md)).
 - **2026-10-15** · Auto-save (M1, #305): Preferences ▸ Save files automatically (`pref.autoSave`, off by default, desktop only) saves each open file that has a path 3 s after its last change, never during a gesture, a live text preview or while a version is shown; the file is encoded off the UI thread, a failed save says why and is tried again a minute later. Numbers unchanged.
 - **2026-10-15** · A text box by dragging (M1, #363): a drag with the Text tool makes a fixed-size text box the size of the drag; a click still makes auto-width text. Numbers unchanged.
@@ -328,6 +334,7 @@ Ranked; detail and milestones in [`docs/roadmap.md`](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-24 | minor | Plugin widgets take text input and a property menu (gap 6, plugin API 4; API 1–3 plugins and existing widgets unchanged): a widget's text layer can be an editable field, edited on the canvas with a double-click like any text (or `widget.setText`), its value cleaned and capped at 1,000 characters, written into the widget's state under the field's name and the field's text, and the plugin called back to redraw, all as one undo step that syncs in live sessions; a widget can carry a property menu of up to 8 actions, toggles and colour choices (up to 8 colours each), shown in a small bar over the widget while it is selected and driven with `widget.menu`; descriptions, values and menus read back from files are checked, an API 3 plugin that draws a field or a menu is refused, and older FigCraft builds refuse API 4 manifests. The Counter example gained a label field and a menu (reset, steps of ten, a colour); the SDK reads the new events. Hover and timers are still missing. Plugins & widgets 60%/35% → 65%/38%, 8–26 h → 6–22 h; Ecosystem dimension 38% → 40%; weighted totals unchanged at this rounding; full parity ~262–519 h → ~260–515 h |
 | 2026-10-24 | minor | Boards (M12): a file kind of its own (`file.newBoard`, saved in `.figcraft`, carried to live-session joiners) with sticky notes, shapes with text, connectors that re-route when what they join moves (an engine recompute, the same for local edits, undo and others' edits), marker, highlighter and eraser, stamps with the placer's name, a board toolbar and a contextual bar; prototyping and Dev Mode refuse on boards; design files and boards have their own marks on tabs and file rows. Boards row added outside the weighted numbers; headline numbers unchanged at this rounding |
 | 2026-10-15 | minor | Auto-save (#305, #296): Preferences ▸ Save files automatically (`pref.autoSave`, off by default; desktop only, the browser has no files to save to) saves each open file that has a path 3 s after its last change, so steady editing doesn't save every few seconds, and never during a gesture, a live text preview or while a version is shown. The file is encoded on a thread of its own and written as of that moment (edits made meanwhile stay unsaved); a failed save says why in a toast and is tried again a minute later, and version history checkpoints keep coming with it on. Numbers unchanged |
 | 2026-10-15 | minor | A text box by dragging (#363, #360): a drag with the Text tool makes a fixed-size text box the size of the drag (at least one line tall); a click, or a drag shorter than the drag threshold, still makes auto-width text. Numbers unchanged |

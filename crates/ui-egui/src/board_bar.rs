@@ -273,7 +273,7 @@ fn line_part(app: &mut FigApp, ui: &mut Ui, line: (Routing, bool), at: Pos2, t: 
 }
 
 /// A thin separator after `x`; where the next part starts.
-fn divider(ui: &Ui, t: &Tokens, x: f32, cy: f32) -> f32 {
+pub(crate) fn divider(ui: &Ui, t: &Tokens, x: f32, cy: f32) -> f32 {
     ui.painter().line_segment([pos2(x + 2.0, cy - 10.0), pos2(x + 2.0, cy + 10.0)], Stroke::new(1.0, t.border));
     x + 8.0
 }

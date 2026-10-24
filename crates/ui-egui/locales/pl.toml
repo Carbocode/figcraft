@@ -2349,6 +2349,8 @@ status = "draft — needs native review"
 "widget.click" = "Kliknij widżet"
 "widget.insert" = "Wstaw widżet"
 "widget.list" = "Lista widżetów"
+"widget.menu" = "Menu widżetu"
+"widget.setText" = "Edytuj pole widżetu"
 "window.focus" = "Przesuń okno na wierzch"
 "window.new" = "Nowe okno"
 
