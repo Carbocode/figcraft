@@ -770,7 +770,7 @@ fn get_node(b: &mut dyn Backend, a: &Map<String, Value>) -> Result<ToolResult, S
             "nextOffset": next,
         })),
     );
-    if window && next.is_none() && offset == 0 && used == depth {
+    if window && next.is_none() && offset == 0 && used == depth && used_wire + MARKER_RESERVE <= budget {
         // Nothing was left out after all (an offset of zero that fitted whole).
         out.as_object_mut().map(|o| o.remove("truncated"));
     }
@@ -792,8 +792,9 @@ fn children_window(value: &mut Value, offset: usize, budget: usize) -> bool {
     if fits(value, rest.len()) {
         return rest.len() != all.len();
     }
-    // The largest window that fits, between none and all of the rest.
-    let (mut lo, mut hi) = (0usize, rest.len());
+    // The largest window that fits, but at least one child, so paging moves on past a child too
+    // large to fit (the marker then says so).
+    let (mut lo, mut hi) = (usize::from(!rest.is_empty()), rest.len());
     while lo < hi {
         let mid = lo + (hi - lo).div_ceil(2);
         if fits(value, mid) { lo = mid } else { hi = mid - 1 }
