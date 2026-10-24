@@ -62,20 +62,25 @@ pub(crate) fn draw(pix: &mut Pixmap, view: &View, d: &Dots) {
             if xa >= xb {
                 continue;
             }
-            let [r, g, b, a] = if i % 2 == 0 && j % 2 == 0 { strong } else { faded };
-            if a == 0 {
-                continue;
-            }
-            for y in ya..yb {
-                let start = y as usize * row;
-                let Some(line) = data.get_mut(start + xa as usize * 4..start + xb as usize * 4) else { continue };
-                for px in line.chunks_exact_mut(4) {
-                    // Source over, premultiplied.
-                    let keep = 255 - a;
-                    for (dst, src) in px.iter_mut().zip([r, g, b, a]) {
-                        *dst = (src + u32::from(*dst) * keep / 255).min(255) as u8;
-                    }
-                }
+            let rgba = if i % 2 == 0 && j % 2 == 0 { strong } else { faded };
+            blend_square(data, row, (xa, xb), (ya, yb), rgba);
+        }
+    }
+}
+
+/// Blend premultiplied `rgba` source-over into the pixels `xs` × `ys` of `data`, rows `row` bytes
+/// long.
+fn blend_square(data: &mut [u8], row: usize, (xa, xb): (i64, i64), (ya, yb): (i64, i64), rgba: [u32; 4]) {
+    let keep = 255 - rgba[3];
+    if rgba[3] == 0 {
+        return;
+    }
+    for y in ya..yb {
+        let start = y as usize * row;
+        let Some(line) = data.get_mut(start + xa as usize * 4..start + xb as usize * 4) else { continue };
+        for px in line.chunks_exact_mut(4) {
+            for (dst, src) in px.iter_mut().zip(rgba) {
+                *dst = (src + u32::from(*dst) * keep / 255).min(255) as u8;
             }
         }
     }
