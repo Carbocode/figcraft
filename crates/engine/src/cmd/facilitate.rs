@@ -174,64 +174,8 @@ fn vote_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let action = req_string(CMD, p, "action")?;
     let who = voter(s, p);
     match action.as_str() {
-        "start" => {
-            if s.doc()?.vote.as_ref().is_some_and(|v| !v.ended) {
-                return Err(EngineError::Disabled(CMD.into(), "a vote is already running: end it first".into()));
-            }
-            let per = match p.get("votes").filter(|v| !v.is_null()) {
-                Some(_) => num(p, "votes")
-                    .filter(|n| n.fract() == 0.0 && (1.0..=f64::from(VOTES_MAX)).contains(n))
-                    .ok_or_else(|| bad(CMD, "`votes` must be a whole number from 1 to 99"))?,
-                None => f64::from(VOTES),
-            } as u32;
-            let scope = match string(p, "on").as_deref().unwrap_or("all") {
-                "all" => VoteScope::All,
-                "stickies" => VoteScope::Stickies,
-                "selection" => {
-                    let doc = s.doc()?;
-                    let ids: Vec<NodeId> = req_targets(CMD, s, p)?.into_iter().filter(|i| VoteScope::All.takes(doc, *i)).collect();
-                    if ids.is_empty() {
-                        return Err(bad(CMD, "pick the objects to vote on (not pages)"));
-                    }
-                    VoteScope::Only { ids }
-                }
-                other => return Err(bad(CMD, format!("unknown `on` `{other}` (all|stickies|selection)"))),
-            };
-            let by = crate::board::author(s);
-            let doc = s.doc_mut()?;
-            doc.votes.clear();
-            doc.vote = Some(Vote { per_person: per, scope, ended: false, by });
-        }
-        "cast" | "retract" => {
-            let target = id(p, "id").ok_or_else(|| bad(CMD, "`id` must be the object to vote on"))?;
-            let doc = s.doc()?;
-            let vote = running(CMD, doc)?;
-            let mut ballot: Vec<NodeId> = vote.counted(doc, doc.votes.get(&who).map_or(&[], Vec::as_slice)).collect();
-            if action == "cast" {
-                if !vote.scope.takes(doc, target) {
-                    return Err(match doc.node(target) {
-                        None => EngineError::NoNode(target),
-                        Some(_) => EngineError::Disabled(CMD.into(), "this vote isn't on that object".into()),
-                    });
-                }
-                if ballot.len() >= vote.per_person as usize {
-                    return Err(EngineError::Disabled(CMD.into(), "you have no votes left: remove one first".into()));
-                }
-                ballot.push(target);
-            } else {
-                let i = ballot
-                    .iter()
-                    .rposition(|i| *i == target)
-                    .ok_or_else(|| EngineError::Disabled(CMD.into(), "you have no vote on that object".into()))?;
-                ballot.remove(i);
-            }
-            let votes = &mut s.doc_mut()?.votes;
-            if ballot.is_empty() {
-                votes.remove(&who);
-            } else {
-                votes.insert(who.clone(), ballot);
-            }
-        }
+        "start" => start_vote(s, p, CMD)?,
+        "cast" | "retract" => change_ballot(s, p, CMD, &who, action == "cast")?,
         "end" => {
             running(CMD, s.doc()?)?;
             if let Some(v) = s.doc_mut()?.vote.as_mut() {
@@ -249,6 +193,69 @@ fn vote_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         other => return Err(bad(CMD, format!("unknown action `{other}` (start|cast|retract|end|clear)"))),
     }
     Ok(vote_json(s.doc()?, &who))
+}
+
+/// `board.vote {action: start}`: a new vote (votes per person, on what), clearing the last results.
+fn start_vote(s: &mut Session, p: &Value, cmd: &str) -> Result<()> {
+    if s.doc()?.vote.as_ref().is_some_and(|v| !v.ended) {
+        return Err(EngineError::Disabled(cmd.into(), "a vote is already running: end it first".into()));
+    }
+    let per = match p.get("votes").filter(|v| !v.is_null()) {
+        Some(_) => num(p, "votes")
+            .filter(|n| n.fract() == 0.0 && (1.0..=f64::from(VOTES_MAX)).contains(n))
+            .ok_or_else(|| bad(cmd, "`votes` must be a whole number from 1 to 99"))?,
+        None => f64::from(VOTES),
+    } as u32;
+    let scope = match string(p, "on").as_deref().unwrap_or("all") {
+        "all" => VoteScope::All,
+        "stickies" => VoteScope::Stickies,
+        "selection" => {
+            let doc = s.doc()?;
+            let ids: Vec<NodeId> = req_targets(cmd, s, p)?.into_iter().filter(|i| VoteScope::All.takes(doc, *i)).collect();
+            if ids.is_empty() {
+                return Err(bad(cmd, "pick the objects to vote on (not pages)"));
+            }
+            VoteScope::Only { ids }
+        }
+        other => return Err(bad(cmd, format!("unknown `on` `{other}` (all|stickies|selection)"))),
+    };
+    let by = crate::board::author(s);
+    let doc = s.doc_mut()?;
+    doc.votes.clear();
+    doc.vote = Some(Vote { per_person: per, scope, ended: false, by });
+    Ok(())
+}
+
+/// `board.vote {action: cast|retract, id}`: one vote of `who`'s placed on (`cast`) or taken back
+/// from an object, within the running vote's scope and votes per person.
+fn change_ballot(s: &mut Session, p: &Value, cmd: &str, who: &str, cast: bool) -> Result<()> {
+    let target = id(p, "id").ok_or_else(|| bad(cmd, "`id` must be the object to vote on"))?;
+    let doc = s.doc()?;
+    let vote = running(cmd, doc)?;
+    let mut ballot: Vec<NodeId> = vote.counted(doc, doc.votes.get(who).map_or(&[], Vec::as_slice)).collect();
+    if cast {
+        if !vote.scope.takes(doc, target) {
+            return Err(match doc.node(target) {
+                None => EngineError::NoNode(target),
+                Some(_) => EngineError::Disabled(cmd.into(), "this vote isn't on that object".into()),
+            });
+        }
+        if ballot.len() >= vote.per_person as usize {
+            return Err(EngineError::Disabled(cmd.into(), "you have no votes left: remove one first".into()));
+        }
+        ballot.push(target);
+    } else {
+        let i =
+            ballot.iter().rposition(|i| *i == target).ok_or_else(|| EngineError::Disabled(cmd.into(), "you have no vote on that object".into()))?;
+        ballot.remove(i);
+    }
+    let votes = &mut s.doc_mut()?.votes;
+    if ballot.is_empty() {
+        votes.remove(who);
+    } else {
+        votes.insert(who.to_string(), ballot);
+    }
+    Ok(())
 }
 
 /// `who`'s votes per object, in the order first voted on.
