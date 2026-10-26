@@ -192,6 +192,19 @@ fn fallback_faces_follow_the_runs_style() {
     }
 }
 
+#[test]
+fn every_platform_has_a_symbol_font_in_the_fallbacks() {
+    // Symbols such as ⌖ (U+2316) and ⤒ (U+2912) are in no text face (#1156): macOS has Apple
+    // Symbols, Windows Segoe UI Symbol, and Linux the Noto symbol and math fonts (fontconfig names
+    // "Noto Sans Symbols 2"; some packages name it "Noto Sans Symbols2").
+    for family in ["Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols", "Noto Sans Symbols 2", "Noto Sans Symbols2", "Noto Sans Math"] {
+        assert!(FALLBACK_FAMILIES.contains(&family), "{family} is a fallback");
+    }
+    // Text faces come first: a symbol font only draws what they lack.
+    let at = |f: &str| FALLBACK_FAMILIES.iter().position(|x| *x == f).unwrap();
+    assert!(at("Noto Sans") < at("Noto Sans Symbols") && at("DejaVu Sans") < at("Noto Sans Math"));
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn user_font_dirs_follow_xdg_data_home() {
@@ -216,6 +229,35 @@ fn user_font_dirs_preserve_non_utf8_paths() {
     let dirs = unix_user_font_dirs(Some(OsString::from_vec(b"/home/\xff".to_vec())), Some(OsString::from_vec(b"/data/\xfe".to_vec())));
     assert_eq!(dirs[0].as_os_str().as_bytes(), b"/home/\xff/.fonts");
     assert_eq!(dirs[1].as_os_str().as_bytes(), b"/data/\xfe/fonts");
+}
+
+#[test]
+fn the_scan_reads_font_files_without_an_extension() {
+    // #298: Adobe Fonts keeps the fonts it activates in hidden files named by number. Any installed
+    // font stands in for one (none on CI); a file that isn't a font is left alone.
+    let Some(font) = system_font_dirs().into_iter().find_map(|d| {
+        std::fs::read_dir(d)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("ttf") || x.eq_ignore_ascii_case("otf")))
+    }) else {
+        eprintln!("skipping: no installed font to stand in for an activated one");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("figcraft-font-bare-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".r")).unwrap();
+    std::fs::copy(&font, dir.join(".r/.12345")).unwrap();
+    std::fs::write(dir.join(".r/entitlements"), b"<xml/>").unwrap();
+    let mut found = BTreeMap::new();
+    scan_dir(&dir, 0, &mut found);
+    let _ = std::fs::remove_dir_all(&dir);
+    let families: Vec<&String> = found.values().map(|(f, _)| f).collect();
+    assert_eq!(found.values().map(|(_, v)| v.len()).sum::<usize>(), faces_in(&std::fs::read(&font).unwrap()).len(), "{families:?}");
+    assert!(!families.is_empty(), "{} is read as a font", font.display());
+    assert!(found.values().flat_map(|(_, v)| v).all(|p| p.path.ends_with(".r/.12345")));
+    #[cfg(target_os = "macos")]
+    assert!(system_font_dirs().iter().any(|d| d.ends_with("Adobe/CoreSync/plugins/livetype")), "Adobe Fonts' folder is scanned");
 }
 
 /// A rescan offers new families and the styles installed since, and never a file twice.
@@ -261,5 +303,17 @@ fn font_bytes_load_into_the_db() {
         let faces = db().read().unwrap().face_count();
         assert_eq!(load_font_bytes(f.bytes.to_vec()), families);
         assert_eq!(db().read().unwrap().face_count(), faces);
+    }
+}
+
+#[test]
+fn every_platform_has_a_thai_font_in_the_fallbacks() {
+    // Thai typed into a Latin layer (new text starts in Inter) is drawn by the first fallback that
+    // has it: Noto Sans Thai (craft-fonts, Linux), Leelawadee UI or Tahoma (Windows), Thonburi
+    // (macOS). They come after the Latin faces, which go on drawing Latin text.
+    let at = |family: &str| FALLBACK_FAMILIES.iter().position(|f| *f == family);
+    let latin = at("Segoe UI").unwrap();
+    for thai in ["Noto Sans Thai", "Leelawadee UI", "Tahoma", "Thonburi"] {
+        assert!(at(thai).is_some_and(|i| i > latin), "{thai}");
     }
 }

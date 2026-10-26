@@ -44,6 +44,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Deepest descendant [`Document::world_render_bounds`] follows: as deep as the renderer draws
+/// (`figcraft_render::MAX_EXPORT_DEPTH`), so a crafted chain can't overflow the stack (#1062).
+const MAX_RENDER_DEPTH: usize = 256;
+
 /// Stable node identifier, unique within a document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -703,12 +707,16 @@ impl Document {
     /// a clipping frame's own area, else that and what its visible children show (masked
     /// children only within their mask). A group is what its children show, grown by its effects.
     pub fn world_render_bounds(&self, id: NodeId) -> Option<Rect> {
+        self.render_bounds_at(id, 0)
+    }
+
+    fn render_bounds_at(&self, id: NodeId, depth: usize) -> Option<Rect> {
         let n = self.node(id)?;
         let own = n.own_paint_bounds(self.world_transform(id));
-        if n.clip && n.kind.is_frame_like() && !n.kind.bounds_follow_children() {
+        if (n.clip && n.kind.is_frame_like() && !n.kind.bounds_follow_children()) || depth >= MAX_RENDER_DEPTH {
             return Some(own);
         }
-        Some(match (self.children_render_bounds(n), &n.kind) {
+        Some(match (self.children_render_bounds(n, depth + 1), &n.kind) {
             (Some(kids), NodeKind::Group) => n.grow_by_effects(kids),
             (Some(kids), _) => own.union(kids),
             (None, _) => own,
@@ -716,15 +724,15 @@ impl Document {
     }
 
     /// What `n`'s visible children show, together: each mask's run within the mask's bounds.
-    fn children_render_bounds(&self, n: &Node) -> Option<Rect> {
+    fn children_render_bounds(&self, n: &Node, depth: usize) -> Option<Rect> {
         let shown = |i: &NodeId| self.node(*i).is_some_and(|c| c.visible && !c.is_mask);
         let mut out: Option<Rect> = None;
         for run in self.paint_runs(n) {
             let ids = n.children.get(run).unwrap_or(&[]);
             let mask = ids.first().copied().filter(|m| self.node(*m).is_some_and(|c| c.is_mask && c.visible));
-            let r = ids.iter().filter(|i| shown(i)).filter_map(|i| self.world_render_bounds(*i)).reduce(|a, b| a.union(b));
+            let r = ids.iter().filter(|i| shown(i)).filter_map(|i| self.render_bounds_at(*i, depth)).reduce(|a, b| a.union(b));
             let r = match mask {
-                Some(m) => r.zip(self.world_render_bounds(m)).map(|(a, b)| a.intersect(b)).filter(|x| x.width() > 0.0 && x.height() > 0.0),
+                Some(m) => r.zip(self.render_bounds_at(m, depth)).map(|(a, b)| a.intersect(b)).filter(|x| x.width() > 0.0 && x.height() > 0.0),
                 None => r,
             };
             out = match (out, r) {
@@ -856,6 +864,12 @@ impl Document {
             {
                 *component = *m;
             }
+            // A measurement copied with the layer it measures to measures to the copy; one to a
+            // layer left behind isn't copied.
+            c.measurements.retain_mut(|m| match m.to {
+                Some(t) => map.get(&t).map(|n| m.to = Some(*n)).is_some(),
+                None => true,
+            });
             // A connector (or label) copied with what it joins joins the copies.
             if let Some(b) = c.board.as_mut() {
                 b.remap(map);
@@ -1017,6 +1031,10 @@ impl Document {
             }
         }
         let mut issues = Vec::new();
+        // Every (parent, child) edge and the page list, indexed once so each node's checks are
+        // lookups: a wide parent or a long page list doesn't make validation quadratic.
+        let edges: std::collections::BTreeSet<(NodeId, NodeId)> = self.nodes.iter().flat_map(|(p, n)| n.children.iter().map(|c| (*p, *c))).collect();
+        let page_ids: std::collections::BTreeSet<NodeId> = self.pages.iter().copied().collect();
         for (id, n) in self.nodes.iter() {
             if n.id != *id {
                 note(&mut issues, || format!("node key {id} has id {}", n.id));
@@ -1033,12 +1051,12 @@ impl Document {
                 }
             }
             if let Some(p) = n.parent
-                && !self.node(p).is_some_and(|pn| pn.children.contains(id))
+                && !(self.node(p).is_some() && edges.contains(&(p, *id)))
             {
                 note(&mut issues, || format!("{id} not listed in parent {p}"));
             }
             // The library store's root is a page that is never listed.
-            let listed = self.pages.contains(id) || (n.is_page() && self.libraries.store == Some(*id));
+            let listed = page_ids.contains(id) || (n.is_page() && self.libraries.store == Some(*id));
             if n.is_page() != listed {
                 note(&mut issues, || format!("page list mismatch for {id}"));
             }
