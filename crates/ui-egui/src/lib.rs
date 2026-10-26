@@ -193,6 +193,8 @@ mod perf_tests;
 #[cfg(test)]
 mod plugin_panel_tests;
 #[cfg(test)]
+mod plugin_save_ui_tests;
+#[cfg(test)]
 mod plugins_browse_tests;
 #[cfg(test)]
 mod popup_width_tests;
@@ -204,6 +206,8 @@ mod present_tab_tests;
 mod present_tests;
 #[cfg(test)]
 mod present_view_tests;
+#[cfg(test)]
+mod property_menu_tests;
 #[cfg(test)]
 mod proto_editor_tests;
 #[cfg(test)]
@@ -234,6 +238,8 @@ mod variables_export_ui_tests;
 mod variables_rename_tests;
 #[cfg(test)]
 mod variants_discovery_tests;
+#[cfg(test)]
+mod vector_keys_tests;
 #[cfg(test)]
 mod vector_panel_tests;
 #[cfg(test)]
@@ -288,6 +294,8 @@ pub trait Services {
         Box::pin(std::future::ready(None))
     }
     fn clipboard_set_text(&mut self, _s: &str) {}
+    /// Give native services access to the window context for platform clipboard output.
+    fn set_egui_context(&mut self, _ctx: &egui::Context) {}
     fn clipboard_get_text(&mut self) -> Option<String> {
         None
     }
@@ -408,9 +416,8 @@ impl Wake for RepaintWaker {
 pub struct NoServices;
 impl Services for NoServices {}
 
-/// Put `text` on the system clipboard through egui's output, which the browser shell writes while
-/// it handles the copy event (the only time a page may write it). For shells without a clipboard
-/// of their own.
+/// Put `text` on the system clipboard through egui's platform output. Native integrations handle
+/// it directly; the browser shell writes it while handling the copy event.
 pub fn egui_copy_text(ctx: &egui::Context, text: &str) {
     ctx.copy_text(text.to_string());
 }
@@ -1396,6 +1403,7 @@ impl FigApp {
                 }
                 "dialog.unsaved" => self.toast(i18n::tr("This file has unsaved changes")),
                 "dialog.plugins" => self.ui.plugins_window = true,
+                "dialog.pluginSave" => plugins_ui::save_file(self, &r.data),
                 "dialog.cursorChat" => live::open_chat(self),
                 "window.new" | "window.focus" | "window.fullscreen" => self.window_requests.push(r),
                 _ => {}
@@ -1515,7 +1523,7 @@ impl FigApp {
         let exts: &[&str] = if place {
             &["png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"]
         } else {
-            &["svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff", "figcraft", "fig"]
+            &["svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff", "figcraft", "fig", "sketch"]
         };
         let title = if place { i18n::tr("Place image") } else { i18n::tr("Import") };
         self.pick_file(title, exts, true, |app, file| {
@@ -1648,7 +1656,7 @@ impl FigApp {
         self.session.prefs.reduce_motion || self.services.reduce_motion()
     }
 
-    /// The CJK and Bengali scripts the UI shows: the language's, the language picker's (Preferences open),
+    /// The CJK, Bengali and Thai scripts the UI shows: the language's, the language picker's (Preferences open),
     /// typed text's, and those in the open file's names and comments (read when it changes, not
     /// mid-drag). Nothing is checked once every script has a face.
     fn cjk_needed(&mut self, ctx: &egui::Context, installed: u8) -> u8 {
@@ -1733,6 +1741,9 @@ impl FigApp {
             // Cmd/Ctrl+= / - / 0 zoom the canvas (view.zoomIn, view.zoomOut, view.zoom100): egui's
             // own keyboard zoom would scale the whole interface on the same keys.
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
+            // A double-click's window is the platform's (0.5 s, Windows' default), not egui's
+            // stricter 0.3 s: a double-click the OS takes must enter a shape's points too.
+            ctx.memory_mut(|m| m.options.input_options.max_double_click_delay = 0.5);
             theme::install_fonts(ctx, false, 0);
             self.fonts_installed = true;
             // Installed fonts apply from the next frame; a child window draws on here, so ask for
@@ -1809,7 +1820,11 @@ impl FigApp {
         let on = !cfg!(target_arch = "wasm32") && self.session.prefs.auto_save;
         let saving = &self.ui.auto_saving;
         let due = |d: &&figcraft_engine::DocState| {
-            d.path.is_some() && d.branch_of.is_none() && d.preview.is_none() && d.is_dirty() && !saving.iter().any(|(uid, _)| *uid == d.uid)
+            d.path.as_deref().is_some_and(|p| d.images_lost_saving_to(p).is_none())
+                && d.branch_of.is_none()
+                && d.preview.is_none()
+                && d.is_dirty()
+                && !saving.iter().any(|(uid, _)| *uid == d.uid)
         };
         let changes = if on { self.session.docs.iter().filter(due).map(|d| d.revision).reduce(u64::wrapping_add) } else { None };
         match changes {
@@ -2300,17 +2315,17 @@ impl FigApp {
 }
 
 /// The file types File ▸ Open and a drop on the home screen open.
-pub(crate) const OPEN_EXTENSIONS: &[&str] = &["figcraft", "fig", "json", "svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"];
+pub(crate) const OPEN_EXTENSIONS: &[&str] = &["figcraft", "fig", "sketch", "json", "svg", "png", "jpg", "jpeg", "webp", "gif", "tif", "tiff"];
 
 /// Whether `path` names a file type that opens as a document (the extension, in any case).
 pub(crate) fn opens(path: &Path) -> bool {
     path.extension().and_then(OsStr::to_str).is_some_and(|e| OPEN_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
-/// Whether `path` is a whole document (`.figcraft`, `.fig`, file JSON) rather than an image or SVG:
+/// Whether `path` is a whole document (`.figcraft`, `.fig`, `.sketch`, file JSON) rather than an image or SVG:
 /// dropped on the canvas it opens as a file of its own instead of adding its pages to the open one.
 pub(crate) fn is_document(path: &Path) -> bool {
-    path.extension().and_then(OsStr::to_str).is_some_and(|e| ["figcraft", "fig", "json"].iter().any(|x| x.eq_ignore_ascii_case(e)))
+    path.extension().and_then(OsStr::to_str).is_some_and(|e| ["figcraft", "fig", "sketch", "json"].iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
 /// Reads the contents of dropped file `name` that has no file on disk to read by path.
