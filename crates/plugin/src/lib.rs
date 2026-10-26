@@ -16,6 +16,8 @@ pub use widget::{MenuItem, MenuKind, WidgetKind, WidgetNode, WidgetRender};
 #[cfg(test)]
 mod bundle_tests;
 #[cfg(test)]
+mod save_file_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod v2_tests;
