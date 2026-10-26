@@ -1625,11 +1625,13 @@ dependencies = [
  "image",
  "log",
  "regex",
+ "same-file",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "wat",
  "web-time",
+ "zip 2.6.1",
 ]
 
 [[package]]

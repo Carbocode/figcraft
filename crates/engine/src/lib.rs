@@ -15,6 +15,8 @@ pub mod arc_handles;
 pub mod background;
 pub mod batch;
 pub mod board;
+pub mod board_table;
+pub mod board_templates;
 pub mod booleans;
 pub mod branches;
 pub mod catalog;
@@ -372,6 +374,7 @@ pub struct DocState {
     /// The last duplicate while its copies are the selection: Duplicate repeats its offset (see
     /// [`cmd::edit::Duplicated`]; not saved).
     pub(crate) last_duplicate: Option<cmd::edit::Duplicated>,
+    images_left_in_file: Option<(String, usize)>,
 }
 
 /// A version shown on the canvas in place of the document: read-only until it's restored or the
@@ -434,9 +437,19 @@ impl DocState {
             rotation_origin: None,
             view_from_prefs: false,
             last_duplicate: None,
+            images_left_in_file: None,
         };
         st.zoom_to_fit();
         st
+    }
+
+    pub fn with_images_left_in_file(mut self, path: &str, count: usize) -> Self {
+        self.images_left_in_file = (count > 0).then(|| (path.to_string(), count));
+        self
+    }
+
+    pub fn images_lost_saving_to(&self, path: &str) -> Option<usize> {
+        self.images_left_in_file.as_ref().filter(|(file, _)| file_access::same_file(file, path)).map(|(_, count)| *count)
     }
 
     /// The selected ruler guide (its owner and index): it counts while no layer is selected and it
@@ -755,6 +768,12 @@ pub struct Clipboard {
     pub images: std::collections::BTreeMap<String, figcraft_doc::ImageData>,
     /// Copied properties (Copy properties / Paste properties).
     pub props: Option<Value>,
+    /// A copied fill or stroke row (`fill.copy`, `stroke.copy`): whether it's a fill, and the paint.
+    pub paint: Option<(bool, figcraft_color::Paint)>,
+    /// The stroke settings (`weight`, alignment, sides…) copied with a stroke's paint.
+    pub stroke: Option<figcraft_doc::StrokeProps>,
+    /// A copied effect row (`effect.copy`).
+    pub effect: Option<figcraft_doc::Effect>,
     /// The page-space bounds of the copied selection.
     pub bounds: Option<figcraft_geom::Rect>,
     pub source_doc: u64,
@@ -1196,8 +1215,9 @@ impl Session {
         }
         let Some(e) = ds.history.undo.pop() else { return Ok(false) };
         let redo = HistoryEntry { label: e.label.clone(), doc: ds.doc.clone(), selection: ds.selection.clone(), page: ds.page };
-        ds.history.redo.push(redo);
         ds.doc = e.doc;
+        cmd::facilitate::keep(&redo.doc, &mut ds.doc);
+        ds.history.redo.push(redo);
         ds.selection = e.selection;
         if ds.doc.pages.contains(&e.page) {
             ds.page = e.page;
@@ -1232,8 +1252,9 @@ impl Session {
         }
         let Some(e) = ds.history.redo.pop() else { return Ok(false) };
         let undo = HistoryEntry { label: e.label.clone(), doc: ds.doc.clone(), selection: ds.selection.clone(), page: ds.page };
-        ds.history.undo.push(undo);
         ds.doc = e.doc;
+        cmd::facilitate::keep(&undo.doc, &mut ds.doc);
+        ds.history.undo.push(undo);
         ds.selection = e.selection;
         if ds.doc.pages.contains(&e.page) {
             ds.page = e.page;
@@ -1619,6 +1640,10 @@ mod batch_step_ref_tests;
 #[cfg(test)]
 mod binding_lists_tests;
 #[cfg(test)]
+mod board_connector_tests;
+#[cfg(test)]
+mod board_tables_tests;
+#[cfg(test)]
 mod board_tests;
 #[cfg(test)]
 mod board_tools_tests;
@@ -1695,6 +1720,8 @@ mod export_depth_tests;
 #[cfg(test)]
 mod extended_chain_tests;
 #[cfg(test)]
+mod facilitate_tests;
+#[cfg(test)]
 mod fig_export_assets_tests;
 #[cfg(test)]
 mod fig_export_tests;
@@ -1728,6 +1755,8 @@ mod html_codegen_tests;
 mod huge_stroke_tests;
 #[cfg(test)]
 mod id_params_behaviour_tests;
+#[cfg(test)]
+mod images_left_in_file_tests;
 #[cfg(test)]
 mod import_export_tests;
 #[cfg(test)]
@@ -1815,6 +1844,8 @@ pub(crate) mod plugins_tests;
 #[cfg(test)]
 mod progressive_blur_tests;
 #[cfg(test)]
+mod property_copy_tests;
+#[cfg(test)]
 mod proto_behaviour_tests;
 #[cfg(test)]
 mod proto_conditional_tests;
@@ -1866,6 +1897,8 @@ mod shapebuilder_tests;
 mod shapes_behaviour_tests;
 #[cfg(test)]
 mod shortcut_parity_tests;
+#[cfg(test)]
+mod sketch_import_tests;
 #[cfg(test)]
 mod slot_tests;
 #[cfg(test)]
