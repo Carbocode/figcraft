@@ -53,7 +53,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context, canvas: Rect) {
     let vote = vote_view(app);
     let editable = app.session.active_read_only().is_none();
     let t = Tokens::get(ctx);
-    egui::Area::new(egui::Id::new("board_facilitate"))
+    egui::Area::new(egui::Id::unique("board_facilitate"))
         .order(egui::Order::Middle)
         .pivot(Align2::RIGHT_TOP)
         .fixed_pos(pos2(canvas.max.x - 12.0, canvas.min.y + 12.0))
@@ -134,7 +134,7 @@ fn timer_popup(app: &mut FigApp, anchor: &egui::Response) {
             }
         });
         ui.horizontal(|ui| {
-            let id = egui::Id::new("board_timer_minutes");
+            let id = egui::Id::unique("board_timer_minutes");
             let mut minutes: u32 = ui.data(|d| d.get_temp(id)).unwrap_or(5);
             widgets::label(ui, tr("Minutes"), Tokens::get(ui.ctx()).text_secondary);
             ui.add(egui::DragValue::new(&mut minutes).range(1..=1440).speed(0.25));
@@ -185,7 +185,7 @@ fn vote_popup(app: &mut FigApp, anchor: &egui::Response) {
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.add_space(2.0);
         ui.label(RichText::new(tr("Voting session")).font(semibold(12.0)));
-        let (votes_id, on_id) = (egui::Id::new("board_vote_votes"), egui::Id::new("board_vote_on"));
+        let (votes_id, on_id) = (egui::Id::unique("board_vote_votes"), egui::Id::unique("board_vote_on"));
         let mut votes: u32 = ui.data(|d| d.get_temp(votes_id)).unwrap_or(3);
         let mut on: usize = ui.data(|d| d.get_temp(on_id)).unwrap_or(0);
         if on == 2 && !selected {
