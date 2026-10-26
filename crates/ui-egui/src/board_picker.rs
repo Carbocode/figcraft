@@ -43,7 +43,7 @@ pub(crate) fn button(app: &mut FigApp, ui: &mut Ui, at: Pos2, top: f32, t: &Toke
 }
 
 fn area_id() -> egui::Id {
-    egui::Id::new("board_templates_area")
+    egui::Id::unique("board_templates_area")
 }
 
 /// A template's picture: the template built on a board of its own and drawn small.
@@ -90,7 +90,7 @@ fn picker(app: &mut FigApp, ui: &mut Ui, anchor: Rect, bottom: f32, t: &Tokens) 
             let r = Rect::from_min_size(at, CARD);
             let tpl = TEMPLATES.get(i);
             let label = tpl.map_or(tr("Table"), |tpl| tr(tpl.name));
-            let resp = ui.interact(r, ui.id().with(("board_template", i)), Sense::click());
+            let resp = ui.interact(r, ui.scope_id().with(("board_template", i)), Sense::click());
             a11y::menu_item(&resp, label, "", None);
             a11y::own_focus(&resp);
             let p = ui.painter();

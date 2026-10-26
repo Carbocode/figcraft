@@ -76,7 +76,7 @@ fn the_selection_bar_adds_and_removes_a_tables_rows_and_columns() {
     // Add row, remove row, add column, remove column: 30 apart, 8 in.
     for (i, want) in [(0, (3, 2)), (1, (2, 2)), (2, (2, 3)), (3, (2, 2))] {
         // The bar follows the table's middle as it widens.
-        let r = u.ctx.memory(|m| m.area_rect(egui::Id::new("board_bar"))).expect("the bar shows for a table");
+        let r = u.ctx.memory(|m| m.area_rect(egui::Id::unique("board_bar"))).expect("the bar shows for a table");
         click(&mut u, pos2(r.min.x + 8.0 + i as f32 * 30.0 + 14.0, r.center().y));
         assert_eq!(size(&u), want, "cell {i}");
     }
