@@ -47,7 +47,7 @@ pub fn show(app: &mut FigApp, ctx: &egui::Context) {
     let size = vec2(8.0 + widths.iter().sum::<f32>() + 8.0 * (menu.len() - 1) as f32 + 4.0, HEIGHT);
     let at = place(sel, size, app.canvas.rect);
     let t = Tokens::get(ctx);
-    egui::Area::new(egui::Id::new("widget_bar")).fixed_pos(at).order(egui::Order::Middle).show(ctx, |ui| {
+    egui::Area::new(egui::Id::unique("widget_bar")).fixed_pos(at).order(egui::Order::Middle).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::click());
         a11y::container_bounds(ui, rect);
         let p = ui.painter();
@@ -75,7 +75,7 @@ fn item(ui: &mut Ui, t: &Tokens, m: &MenuItem, x: f32, cy: f32, wd: f32) -> Opti
         for (i, hex) in m.options.iter().enumerate() {
             let r = Rect::from_center_size(pos2(x + i as f32 * (SWATCH + GAP) + SWATCH / 2.0, cy), vec2(SWATCH, SWATCH));
             let tip = format!("{} {hex}", m.label);
-            let resp = ui.interact(r, ui.id().with(("wb_color", &m.item, i)), Sense::click()).on_hover_text(&tip);
+            let resp = ui.interact(r, ui.scope_id().with(("wb_color", &m.item, i)), Sense::click()).on_hover_text(&tip);
             let on = m.value.as_ref() == Some(hex);
             a11y::toggle(&resp, &tip, on);
             if on {
@@ -93,7 +93,7 @@ fn item(ui: &mut Ui, t: &Tokens, m: &MenuItem, x: f32, cy: f32, wd: f32) -> Opti
         return picked;
     }
     let r = Rect::from_min_size(pos2(x, cy - CELL / 2.0), vec2(wd - GAP, CELL));
-    let resp = ui.interact(r, ui.id().with(("wb_item", &m.item)), Sense::click());
+    let resp = ui.interact(r, ui.scope_id().with(("wb_item", &m.item)), Sense::click());
     let on = m.kind == MenuKind::Toggle && m.checked;
     if m.kind == MenuKind::Toggle {
         a11y::toggle(&resp, &m.label, on);
