@@ -91,12 +91,6 @@ pub(crate) fn cached_sides(hash: &str) -> Vec<u32> {
     sides
 }
 
-/// The bytes of pixels the decoded-image cache holds.
-#[cfg(test)]
-pub(crate) fn cached_bytes() -> u64 {
-    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner).bytes
-}
-
 fn cache() -> &'static Mutex<PixmapCache> {
     static C: OnceLock<Mutex<PixmapCache>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(PixmapCache::default()))
