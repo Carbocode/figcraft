@@ -158,7 +158,7 @@ pub fn section(app: &mut FigApp, ui: &mut Ui, doc: &Arc<Document>, ids: &[NodeId
                                 }
                             });
                         }
-                        if icons::button(ui, Icon::Move, 24.0, false, tr("Select layers with this color")).clicked() {
+                        if icons::button(ui, Icon::SelectColor, 24.0, false, tr("Select layers with this color")).clicked() {
                             app.run("selection.selectColor", json!({"targets": group.targets}));
                         }
                     });
